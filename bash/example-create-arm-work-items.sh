@@ -1,5 +1,8 @@
 #!/bin/bash
 # 
+# Copyright (c) Tim Sullivan. All rights reserved.
+# Licensed under the MIT license. See LICENSE file in the project root for full license information.
+# 
 # Creates a series of linked tasks for creating a new ARM template and maps them to a user story.
 # User story must conform to the name "Create ARM Template for <arm_resource>" for the story name variable to work correctly. 
 

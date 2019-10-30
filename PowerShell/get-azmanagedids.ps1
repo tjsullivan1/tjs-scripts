@@ -1,3 +1,8 @@
+<#       
+Copyright (c) Tim Sullivan. All rights reserved.
+Licensed under the MIT license. See LICENSE file in the project root for full license information.
+#>
+
 Get-AzResourceGroup | % { 
     $rg_name = $_.ResourceGroupName
     Get-AzUserAssignedIdentity -ResourceGroupName $rg_name

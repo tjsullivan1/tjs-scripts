@@ -1,3 +1,7 @@
+<#       
+Copyright (c) Tim Sullivan. All rights reserved.
+Licensed under the MIT license. See LICENSE file in the project root for full license information.
+#>
 <#
 Creates a CSV with the name of the current subscription that contains a breakdown of all VMs with the following info:
 "ResourceGroup","VMName","VM_SKU","vCPU_Core","RAM"
