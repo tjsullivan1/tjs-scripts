@@ -11,7 +11,7 @@ Get-ChildItem -Directory -Path $path |
 Select-Object -Expand FullName | 
 ForEach-Object {
   Push-Location $_
-  if ( (Get-ChildItem -Hidden -Directory | select -ExpandProperty name) -contains '.git') {
+  if ( (Get-ChildItem -Hidden -Directory | Select-Object -ExpandProperty name) -contains '.git') {
     Write-Verbose "$_ is a git repository"
     Write-Host "Checking $_"
     git status -s -b
