@@ -27,6 +27,7 @@ Copyright (c) Tim Sullivan. All rights reserved.
 Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 #>
+#Requires -Version 6.0
 [CmdletBinding()]
 param (
     [Parameter(Mandatory=$true)]
