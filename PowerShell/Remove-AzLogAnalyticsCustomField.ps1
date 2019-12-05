@@ -3,7 +3,7 @@
 This cmdlet will help to remove custom fields from a log analytics workspace. This can be useful if you start to hit limits.
 
 .PARAMETER token
-An Azure Bearer token. To get this, run `az account get-access-token` from the Azure Cloud Shell (bash).
+An Azure Bearer token. To get this, run `az account get-access-token | jq '.accessToken'` from the Azure Cloud Shell (bash).
 
 .PARAMETER customField
 The name of the custom field. To get a list of all the fields, run the following query in Log Analytics:
@@ -15,6 +15,7 @@ The name of the custom field. To get a list of all the fields, run the following
 
 .PARAMETER workspace
 The workspace resourceID. To get this, run `(Get-AzOperationalInsightsWorkspace -Name $name -ResourceGroupName $rg).ResourceId` where $name is the name for your workspace and $rg is the resource group containing that workspace.
+It should look something like this: /subscriptions/$subscriptionId/resourcegroups/$rgName/providers/microsoft.operationalinsights/workspaces/$workspaceName
 
 .EXAMPLE
 
