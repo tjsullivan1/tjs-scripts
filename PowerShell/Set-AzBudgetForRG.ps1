@@ -18,7 +18,7 @@ foreach ($period in $billing_periods)
     if ($summed_cost) 
     {
         Write-Verbose $summed_cost
-        $monthly_costs.Add($summed_cost)
+        $monthly_costs += $summed_cost
     }       
 }
 
