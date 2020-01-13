@@ -22,4 +22,4 @@ foreach ($period in $billing_periods)
     }       
 }
 
-$monthly_costs | Sort-Object -Descending | Select-Object -First
+$monthly_costs | Sort-Object -Descending | Select-Object -First 1
