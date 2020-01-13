@@ -28,3 +28,5 @@ $max_cost_seen = [math]::Ceiling($max_cost_seen)
 
 Write-Verbose $max_cost_seen
 #TODO: Allow the specification of budget value by dollar amount, average cost, etc.
+
+New-AzConsumptionBudget -Name "powershell-automated-budget-$ResourceGroupName" -Amount $max_cost_seen -Category Cost -TimeGrain Monthly -StartDate (Get-Date -Day 1) -ResourceGroupName $ResourceGroupName
