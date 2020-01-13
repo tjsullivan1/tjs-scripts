@@ -22,4 +22,8 @@ foreach ($period in $billing_periods)
     }       
 }
 
-$monthly_costs | Sort-Object -Descending | Select-Object -First 1
+# Calculate the maximum cost (rounded up to the nearest whole dollar) we've seen over the last four full billing periods
+$max_cost_seen = $monthly_costs | Sort-Object -Descending | Select-Object -First 1
+$max_cost_seen = [math]::Ceiling($max_cost_seen)
+
+#TODO: Allow the specification of budget value by dollar amount, average cost, etc.
