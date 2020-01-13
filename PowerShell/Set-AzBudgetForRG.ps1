@@ -26,4 +26,5 @@ foreach ($period in $billing_periods)
 $max_cost_seen = $monthly_costs | Sort-Object -Descending | Select-Object -First 1
 $max_cost_seen = [math]::Ceiling($max_cost_seen)
 
+Write-Verbose $max_cost_seen
 #TODO: Allow the specification of budget value by dollar amount, average cost, etc.
