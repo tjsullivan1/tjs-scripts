@@ -5,12 +5,11 @@ param (
     $ResourceGroupName
 )
 
-$billing_periods = Get-AzBillingPeriod | sort-object -Top 5 | Select-Object -ExpandProperty name
-Write-Debug $billing_periods
+$billing_periods = Get-AzBillingPeriod | sort-object -Top 5 | Where-Object BillingPeriodEndDate -lt (get-date) | Select-Object -ExpandProperty name
 
 foreach ($period in $billing_periods) {
-    Write-Debug $period
+    Write-Verbose $period
     $summed_cost = Get-AzConsumptionUsageDetail -ResourceGroup $ResourceGroupName -BillingPeriodName $period | Measure-Object PretaxCost -Sum | Select-Object -ExpandProperty Sum
-    Write-Debug $summed_cost
+    Write-Verbose $summed_cost
 }
     
