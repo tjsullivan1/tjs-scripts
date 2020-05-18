@@ -2,7 +2,8 @@
 param (
     $imageResourceGroup,
     $imageTemplateName,
-    [switch]$SelectRunState
+    [switch]$SelectRunState,
+    [switch]$SelectDuration
 )
 
 begin {
@@ -26,11 +27,26 @@ process {
     $urlBuildStatus = [System.String]::Format("{0}subscriptions/{1}/resourceGroups/$imageResourceGroup/providers/Microsoft.VirtualMachineImages/imageTemplates/{2}?api-version=2019-05-01-preview", $managementEp, $currentAzureContext.Subscription.Id,$imageTemplateName)
     $buildStatusResult = Invoke-WebRequest -Method GET  -Uri $urlBuildStatus -UseBasicParsing -Headers  @{"Authorization"= ("Bearer " + $accessToken)} -ContentType application/json 
     $buildJsonStatus =$buildStatusResult.Content
+    $buildStatus = $buildJsonStatus
+    
     if ($SelectRunState) {
-        $buildJsonStatus = $buildJsonStatus | convertfrom-json | select -ExpandProperty Properties | select -ExpandProperty lastRunStatus | select -ExpandProperty runstate
+        $buildStatus = $buildJsonStatus | convertfrom-json | select -ExpandProperty Properties | select -ExpandProperty lastRunStatus | select -ExpandProperty runstate
     }
     
-    $buildJsonStatus
+    if ($SelectDuration) {
+        [datetime]$nullTime = "Monday, January 1, 0001 12:00:00 AM"
+        $LastRunStatus = $buildJsonStatus |convertfrom-json | select -ExpandProperty Properties | select -ExpandProperty lastRunStatus
+        if ($lastRunStatus.endTime -eq $nullTime) {
+            $ct = get-date
+            $duration = $ct - [datetime]$lastRunStatus.startTime
+            $buildStatus = $duration.TotalMinutes
+        } else {
+            $duration = [datetime]$lastRunStatus.endTime - [datetime]$lastRunStatus.startTime
+            $buildStatus = $duration.TotalMinutes
+        }
+    }
+
+    $buildStatus
     
 }
 
