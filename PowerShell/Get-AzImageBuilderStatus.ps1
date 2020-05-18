@@ -28,9 +28,10 @@ process {
     $buildJsonStatus =$buildStatusResult.Content
     if ($SelectRunState) {
         $buildJsonStatus = $buildJsonStatus | convertfrom-json | select -ExpandProperty Properties | select -ExpandProperty lastRunStatus | select -ExpandProperty runstate
-    } else {
-        $buildJsonStatus
     }
+    
+    $buildJsonStatus
+    
 }
 
 end {
