@@ -33,7 +33,7 @@ def mv_git_config():
     cwd = os.getcwd()
     src = os.path.join(cwd, 'git-config.txt')
     bak = os.path.join(cwd, 'git-config.txt.bak')
-    home = print(os.path.expanduser('~'))
+    home = os.path.expanduser('~')
     dst = os.path.join(home, '.gitconfig')
 
     os.rename(src, dst)
@@ -47,6 +47,7 @@ def main():
     editor = get_editor()
     replace_file_contents(email, editor)
     mv_git_config()
+    
 
 if __name__ == "__main__":
     main()
