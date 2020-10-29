@@ -2,6 +2,7 @@
 
 import os
 import fileinput
+import shutil
 
 
 def get_email():
@@ -36,7 +37,7 @@ def mv_git_config():
     home = os.path.expanduser('~')
     dst = os.path.join(home, '.gitconfig')
 
-    os.replace(src, dst)
+    shutil.move(src, dst)
     os.replace(bak, src)
 
     return 0
