@@ -1,10 +1,10 @@
 invoke-webrequest https://aka.ms/OneDriveWVD-Installer -OutFile OneDriveSetup.exe
 
-OneDriveSetup.exe /uninstall
+OneDriveSetup.exe /uninstall /silent
 
 REG ADD "HKLM\Software\Microsoft\OneDrive" /v "AllUsersInstall" /t REG_DWORD /d 1 /reg:64
 
-OneDriveSetup.exe /allusers 
+OneDriveSetup.exe /allusers /silent
 
 REG ADD "HKLM\Software\Microsoft\Windows\CurrentVersion\Run" /v OneDrive /t REG_SZ /d "C:\Program Files (x86)\Microsoft OneDrive\OneDrive.exe /background" /f
 REG ADD "HKLM\SOFTWARE\Policies\Microsoft\OneDrive" /v "SilentAccountConfig" /t REG_DWORD /d 1 /f
