@@ -16,6 +16,5 @@ Expand-Archive $LocalPath\$installerFile -DestinationPath $LocalPath
 write-host 'AIB Customization: Download Fslogix installer finished'
 
 write-host 'AIB Customization: Start Fslogix installer'
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Force -Verbose
 .\\FSLogixSetup.ps1 -ProfilePath \\sefslogixprof1.file.core.windows.net\lab\profiles -Verbose 
 write-host 'AIB Customization: Finished Fslogix installer' 
