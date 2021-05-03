@@ -6,12 +6,20 @@ $WVDflogixURL = 'https://raw.githubusercontent.com/tjsullivan1/tjs-scripts/maste
 $WVDFslogixInstaller = 'FSLogixSetup.ps1'
 $outputPath = $LocalPath + '\' + $WVDFslogixInstaller
 Invoke-WebRequest -Uri $WVDflogixURL -OutFile $outputPath
+write-host "Downloaded script from GithUb"
 set-Location $LocalPath
+
+$curr = gci $LocalPath
+write-host "$curr"
 
 $fsLogixURL="https://aka.ms/fslogix_download"
 $installerFile="fslogix_download.zip"
 
 Invoke-WebRequest $fsLogixURL -OutFile $LocalPath\$installerFile
+
+$curr = gci $LocalPath
+write-host "$curr"
+
 Expand-Archive $LocalPath\$installerFile -DestinationPath $LocalPath
 write-host 'AIB Customization: Download Fslogix installer finished'
 
