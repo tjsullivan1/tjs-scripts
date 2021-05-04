@@ -1,5 +1,9 @@
+write-host "Started the software installation script using Chocolatey"
 choco feature enable -n allowGlobalConfirmation
 
+$date = get-date
+write-host "$date -- enabled chocolatey to run with global confirmation.
+"
 # language support / runtimes
 choco install --no-progress python
 $date = get-date
@@ -47,9 +51,9 @@ write-host "$date -- Installed  vscode"
 choco install --no-progress gnucash
 $date = get-date
 write-host "$date -- Installed  gnucash"
-choco install --no-progress microsoft-windows-terminal # This install did not seem to work properly for me.
-$date = get-date
-write-host "$date -- Installed  microsoft-windows-terminal # This install did not seem to work properly for me."
+# choco install --no-progress microsoft-windows-terminal # This install did not seem to work properly for me.
+# $date = get-date
+# write-host "$date -- Installed  microsoft-windows-terminal # This install did not seem to work properly for me."
 choco install --no-progress microsoft-edge-insider-dev
 $date = get-date
 write-host "$date -- Installed  microsoft-edge-insider-dev"
