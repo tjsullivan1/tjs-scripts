@@ -46,6 +46,9 @@ write-host "$date -- Installed  pycharm"
 choco install --no-progress vscode
 $date = get-date
 write-host "$date -- Installed  vscode"
+choco install --no-progress docker-cli
+$date = get-date
+write-host "$date -- Installed  docker cli"
 
 # Various tools
 choco install --no-progress gnucash
