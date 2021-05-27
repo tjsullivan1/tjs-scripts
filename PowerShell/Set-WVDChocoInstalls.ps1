@@ -50,6 +50,15 @@ choco install --no-progress docker-desktop
 $date = get-date
 write-host "$date -- Installed  docker desktop"
 
+# Install Tooling for Citizen Development
+choco install --no-progress netfx-4.6.2-devpack
+$date = get-date
+write-host "$date -- Installed  installed .net framework dev pack"
+choco install --no-progress dotnetcore-3.1-sdk
+$date = get-date
+write-host "$date -- Installed  installed dot net core sdk"
+
+
 # Various tools
 choco install --no-progress gnucash
 $date = get-date
