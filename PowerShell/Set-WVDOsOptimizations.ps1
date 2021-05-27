@@ -43,5 +43,5 @@
  
  # run script
  # .\optimize -WindowsVersion 2004 -Verbose
-  .\Win10_VirtualDesktop_Optimize.ps1 -WindowsVersion 2004 -Verbose
+  .\Win10_VirtualDesktop_Optimize.ps1 -WindowsVersion 2009 -Verbose
   write-host 'AIB Customization: Finished OS Optimizations script'
