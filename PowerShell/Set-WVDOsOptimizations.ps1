@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param (
-  $winVer = '2009'
+  $winVer = '2009',
+  [ValidateSet('All','WindowsMediaPlayer','AppxPackages','ScheduledTasks','DefaultUserSettings','Autologgers','Services','NetworkOptimizations','LGPO','DiskCleanup')] 
+    [String[]]
+    $Optimizations = "All"
 )
 
 # OS Optimizations for WVD
@@ -48,5 +51,5 @@ Set-Content $updatePath $file
 
 # run script
 # .\optimize -WindowsVersion 2004 -Verbose
-.\Win10_VirtualDesktop_Optimize.ps1 -WindowsVersion $winVer -AcceptEULA -Verbose
+.\Win10_VirtualDesktop_Optimize.ps1 -Optimizations $optimizations -WindowsVersion $winVer -AcceptEULA -Verbose
 write-host 'AIB Customization: Finished OS Optimizations script'
