@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param (
-  $winVer = '2004'
+  $winVer = '2009'
 )
 
 # OS Optimizations for WVD
@@ -48,5 +48,5 @@ Set-Content $updatePath $file
 
 # run script
 # .\optimize -WindowsVersion 2004 -Verbose
-.\Win10_VirtualDesktop_Optimize.ps1 -WindowsVersion $winVer -Verbose
+.\Win10_VirtualDesktop_Optimize.ps1 -WindowsVersion $winVer -AcceptEULA -Verbose
 write-host 'AIB Customization: Finished OS Optimizations script'
