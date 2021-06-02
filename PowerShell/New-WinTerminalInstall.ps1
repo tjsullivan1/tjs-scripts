@@ -11,7 +11,7 @@ invoke-webrequest $url -outfile $BundleName
 
 write-host "Importing Appx Module"
 
-Import-Module Appx -UseWindowsPowerShell
+Import-Module Appx # This fails on straight win 10 -UseWindowsPowerShell
 
 write-host "Installing $BundleName"
 
