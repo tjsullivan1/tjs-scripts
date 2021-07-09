@@ -69,3 +69,7 @@ write-host "$date -- Installed  gnucash"
 choco install --no-progress microsoft-edge-insider-dev
 $date = get-date
 write-host "$date -- Installed  microsoft-edge-insider-dev"
+
+choco install sysinternals
+$date = get-date
+write-host "$date -- Installed sysinternals"
