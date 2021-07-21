@@ -119,7 +119,7 @@ Write-Host `
     "Installing FSLogix"
 $fslogix_deploy_status = Start-Process `
     -FilePath "$LocalWVDpath\FSLogix\x64\Release\FSLogixAppsSetup.exe" `
-    -ArgumentList "/install /quiet" `
+    -ArgumentList "/install /quiet /norestart" `
     -Wait `
     -Passthru
 
