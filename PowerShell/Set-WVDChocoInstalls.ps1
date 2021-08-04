@@ -53,11 +53,21 @@ write-host "$date -- Installed  docker desktop"
 # Install Tooling for Citizen Development
 choco install --no-progress netfx-4.6.2-devpack
 $date = get-date
-write-host "$date -- Installed  installed .net framework dev pack"
+write-host "$date -- Installed  .net framework dev pack"
 choco install --no-progress dotnetcore-3.1-sdk
 $date = get-date
-write-host "$date -- Installed  installed dot net core sdk"
+write-host "$date -- Installed dot net core sdk"
 
+# Tooling for UML in VS Code
+choco install  --no-progress microsoft-openjdk
+$date = get-date
+write-host "$date -- Installed  microsoft open jdk"
+choco install  --no-progress graphviz
+$date = get-date
+write-host "$date -- Installed graphviz"
+choco install  --no-progress plantuml
+$date = get-date
+write-host "$date -- Installed planuml"
 
 # Various tools
 choco install --no-progress gnucash
