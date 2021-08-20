@@ -67,18 +67,35 @@ RegistrationToken = $RegistrationToken
 Optimize          = $Optimize
 "
 
+Write-Host `
+    -ForegroundColor Cyan `
+    -BackgroundColor Black `
+    "
+    ProfilePath       = $ProfilePath
+    RegistrationToken = $RegistrationToken
+    Optimize          = $Optimize
+    "
+
 
 #################################
 #    Download WVD Componants    #
 #################################
 Add-Content -LiteralPath C:\New-WVDSessionHost.log "Downloading FSLogix"
-    Invoke-WebRequest -Uri $FSLogixURI -OutFile "$LocalWVDpath$FSInstaller"
+Write-Host `
+    -ForegroundColor Cyan `
+    -BackgroundColor Black `
+    "Downloading FSLogix"
+Invoke-WebRequest -Uri $FSLogixURI -OutFile "$LocalWVDpath$FSInstaller"
 
 
 ##############################
 #    Prep for WVD Install    #
 ##############################
 Add-Content -LiteralPath C:\New-WVDSessionHost.log "Unzip FSLogix"
+Write-Host `
+    -ForegroundColor Cyan `
+    -BackgroundColor Black `
+    "Unzip FSLogix"
 Expand-Archive `
     -LiteralPath "C:\temp\wvd\$FSInstaller" `
     -DestinationPath "$LocalWVDpath\FSLogix" `
@@ -87,15 +104,22 @@ Expand-Archive `
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 cd $LocalWVDpath 
 Add-Content -LiteralPath C:\New-WVDSessionHost.log "UnZip FXLogix Complete"
-
+Write-Host `
+    -ForegroundColor Cyan `
+    -BackgroundColor Black `
+    "Unzip FSLogix complete"
 
 #########################
 #    FSLogix Install    #
 #########################
 Add-Content -LiteralPath C:\New-WVDSessionHost.log "Installing FSLogix"
+Write-Host `
+    -ForegroundColor Cyan `
+    -BackgroundColor Black `
+    "Installing FSLogix"
 $fslogix_deploy_status = Start-Process `
     -FilePath "$LocalWVDpath\FSLogix\x64\Release\FSLogixAppsSetup.exe" `
-    -ArgumentList "/install /quiet" `
+    -ArgumentList "/install /quiet /norestart" `
     -Wait `
     -Passthru
 
@@ -104,6 +128,10 @@ $fslogix_deploy_status = Start-Process `
 #    FSLogix User Profile Settings    #
 #######################################
 Add-Content -LiteralPath C:\New-WVDSessionHost.log "Configure FSLogix Profile Settings"
+Write-Host `
+    -ForegroundColor Cyan `
+    -BackgroundColor Black `
+    "Configure FSLogix Profile Settings"
 Push-Location 
 Set-Location HKLM:\SOFTWARE\
 New-Item `

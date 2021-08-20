@@ -20,7 +20,7 @@ Invoke-WebRequest $fsLogixURL -OutFile $LocalPath\$installerFile
 $curr = gci $LocalPath
 write-host "$curr"
 
-Expand-Archive $LocalPath\$installerFile -DestinationPath $LocalPath
+Expand-Archive $LocalPath\$installerFile -DestinationPath $LocalPath -Force
 write-host 'AIB Customization: Download Fslogix installer finished'
 
 write-host 'AIB Customization: Start Fslogix installer'
