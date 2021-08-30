@@ -69,6 +69,50 @@ resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2020-08
   }
 }
 
+
+resource myFirewallPolicy 'Microsoft.Network/firewallPolicies@2021-02-01' = {
+  name: 'AzureFirewallPolicy'
+  location: location
+}
+
+resource transitiveRoute 'Microsoft.Network/firewallPolicies/ruleCollectionGroups@2020-11-01' = {
+  parent: myFirewallPolicy
+  name: 'routeBetweenSpokes'
+  properties: {
+    priority: 100
+    ruleCollections: [
+      {
+        ruleCollectionType: 'FirewallPolicyFilterRuleCollection'
+        action: {
+          type: 'Allow'
+        }
+        name: 'any-to-any'
+        priority: 200
+        rules: [
+          {
+            ruleType: 'NetworkRule'
+            ipProtocols: [
+              'Any'
+            ]
+            destinationAddresses: [
+              '*'
+            ]
+            destinationPorts: [
+              '*'
+            ]
+            sourceAddresses: [
+              '*'
+            ]
+            name: 'any-to-any'
+          }
+        ]
+      }
+    ]
+
+  }
+}
+
+
 module hub '../modules/hub.bicep' = {
   name: 'vnet-hub'
   params: {
@@ -78,6 +122,7 @@ module hub '../modules/hub.bicep' = {
     hubNetwork: hubNetwork
     bastionHost: bastionHost
     logAnalyticsWorkspaceId: logAnalyticsWorkspace.id
+    firewallPolicyId: myFirewallPolicy.id
   }
 }
 
@@ -188,47 +233,5 @@ module vm2 '../modules/simple-vm.bicep' = {
     subnetId: spoke2.outputs.spokeSubnetId
     vmName: 'spoke2-vm1'
     vmSize: vmSize
-  }
-}
-
-resource testFirewallPolicy 'Microsoft.Network/firewallPolicies@2021-02-01' = {
-  name: 'AzureFirewallPolicy'
-  location: location
-}
-
-resource transitiveRoute 'Microsoft.Network/firewallPolicies/ruleCollectionGroups@2020-11-01' = {
-  parent: testFirewallPolicy
-  name: 'routeBetweenSpokes'
-  properties: {
-    priority: 100
-    ruleCollections: [
-      {
-        ruleCollectionType: 'FirewallPolicyFilterRuleCollection'
-        action: {
-          type: 'Allow'
-        }
-        name: 'any-to-any'
-        priority: 200
-        rules: [
-          {
-            ruleType: 'NetworkRule'
-            ipProtocols: [
-              'Any'
-            ]
-            destinationAddresses: [
-              '*'
-            ]
-            destinationPorts: [
-              '*'
-            ]
-            sourceAddresses: [
-              '*'
-            ]
-            name: 'any-to-any'
-          }
-        ]
-      }
-    ]
-
   }
 }

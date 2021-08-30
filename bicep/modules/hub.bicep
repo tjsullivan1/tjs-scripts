@@ -3,6 +3,7 @@ param azureFirewall object
 param bastionHost object
 param vpnGateway object
 param logAnalyticsWorkspaceId string
+param firewallPolicyId string = ''
 param location string
 
 resource vnetHub 'Microsoft.Network/virtualNetworks@2020-05-01' = {
@@ -84,6 +85,9 @@ resource firewall 'Microsoft.Network/azureFirewalls@2020-05-01' = {
         }
       }
     ]
+    firewallPolicy: {
+      id: firewallPolicyId
+    }
   }
 }
 
