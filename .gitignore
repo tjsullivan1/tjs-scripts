@@ -35,3 +35,6 @@ tags
 
 # Ruby download package lock file.
 Gemfile.lock
+
+# tjs added randomness
+k8s-test*
