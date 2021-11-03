@@ -24,5 +24,5 @@ Expand-Archive $LocalPath\$installerFile -DestinationPath $LocalPath -Force
 write-host 'AIB Customization: Download Fslogix installer finished'
 
 write-host 'AIB Customization: Start Fslogix installer'
-.\\FSLogixSetup.ps1 -ProfilePath \\sefslogixprof1.file.core.windows.net\lab\profiles -Verbose 
+.\\FSLogixSetup.ps1 -ProfilePath \\sefslogixprof1.file.core.windows.net\profiles -Verbose 
 write-host 'AIB Customization: Finished Fslogix installer' 
