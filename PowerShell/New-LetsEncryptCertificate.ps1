@@ -47,6 +47,10 @@ write-output $pass
 if ($subdomain -like "*.*") {
     $friendly = $subdomain.replace(".","-")
     Import-AzKeyVaultCertificate -VaultName $keyvault -Name $friendly -FilePath $chain -Password $pass
+	$secretname = $friendly + "certificatepassword"
+	Set-AzKeyVaultSecret -VaultName $keyvault -Name $secretname -secretvalue $pass 
 } else {
     Import-AzKeyVaultCertificate -VaultName $keyvault -Name $subdomain -FilePath $chain -Password $pass
+	$secretname = $subdomain + "certificatepassword"
+	Set-AzKeyVaultSecret -VaultName $keyvault -Name $secretname -secretvalue $pass 
 }
