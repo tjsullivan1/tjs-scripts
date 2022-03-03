@@ -1,6 +1,3 @@
-from curses import keyname
-import email
-import secrets
 from instapaper import Instapaper as ipaper
 import random
 import click
