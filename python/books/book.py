@@ -12,9 +12,6 @@ from notion_database.properties import Properties
 
 import ast
 
-
-NOTION_KEY=''
-
 def generate_google_book_api_url(title, results):
     return f'https://www.googleapis.com/books/v1/volumes?q={urllib.parse.quote_plus(title)}&maxResults={results}'
 
@@ -26,10 +23,14 @@ def get_books(api):
     return results.json().get('items')
 
 
-def parse_volume_info(volume, referral=None, status='to-read', priority='Low', rating=0, form_factor='Audiobook', date=None, category='Personal'):
-    if date is None:
-        today = datetime.today()
-        calc_date = f"{today.month}/{today.day}/{today.year}"
+def parse_volume_info(volume, status, referral=None, priority='Low', rating=0, form_factor='Audiobook', date=None, category='Personal'):
+    today = datetime.today()
+    added_date = f"{today.month}/{today.day}/{today.year}"
+
+    if date is None or status != 'read':
+        date_read = ''
+    else:
+        date_read = date
     
     book_as_dict = {
         'Title': volume.get('title'),
@@ -40,15 +41,15 @@ def parse_volume_info(volume, referral=None, status='to-read', priority='Low', r
         'Priority': priority,
         'Rating': rating,
         'Type Read': form_factor,
-        'Date Read': '',
-        'Date Added': calc_date,
+        'Date Read': date_read,
+        'Date Added': added_date,
         'Category': category,
     }
     
     return book_as_dict
 
 
-def add_to_notion(book_info, database_id, notion_key=NOTION_KEY):
+def add_to_notion(book_info, database_id, notion_key):
     author_string = ", "
 
     if book_info.get('Referral') is None:
@@ -77,36 +78,39 @@ def add_to_notion(book_info, database_id, notion_key=NOTION_KEY):
     PROPERTY.set_number('Rating out of 5', str(book_info.get('Rating')))
     PROPERTY.set_multi_select('Type Read', [book_info.get('Type Read')])
     PROPERTY.set_select('Category', book_info.get('Category'))
+    # TODO: Get data read property added
 
     # Create Page
-    P = Page(integrations_token=NOTION_KEY)
+    P = Page(integrations_token=notion_key)
     P.create_page(database_id=database_id, properties=PROPERTY)
 
     return 0
 
-# TODO: Accept Notion Key as an argument or a config file
-# TODO: Accept Notion DB as an argument or a config file
-# TODO: Make add to notion optional
+
 # TODO: Search by more than just title
-# TODO: Figure out how to get this from the commandline
 @click.command()
 @click.option('--title', '-t')
+@click.option('--status', '-s', default='to-read', type=click.Choice(['to-read', 'read', 'not-to-read', 'currently-reading'], case_sensitive=False))
+@click.option('--date-read', default=None, help="When did you read the book? Formatted in MM/DD/YYYY.")
 @click.option('--referral', '--referred-by', help="Who told you about this or where did you find this reference?")
 @click.option('--result-size', '--results', '-r', default=1, help='How many book json objects do we want to return?')
-def main(title: str, referral: str, result_size: int):
+@click.option('--notion-key', '-nk', help="This is the integration key for Notion that allows writes to the database.")
+@click.option('--notion-database', '-ndb', help="This is the database ID that maps to your desired database.")
+@click.option('--no-notion', '-nn', is_flag=True, default=None, help='Use this flag to skip adding to Notion')
+def main(title: str, status: str, date_read: str, referral: str, result_size: int, notion_key: str, notion_database: str, no_notion):
     google_book_api_url=generate_google_book_api_url(title, result_size)
 
     books = get_books(google_book_api_url)
 
     for book in books:
-        book_info = parse_volume_info(book.get('volumeInfo'), referral=referral)
+        book_info = parse_volume_info(book.get('volumeInfo'), referral=referral, status=status, date=date_read)
         print(book_info)
 
-        # TODO: Make this an optional commandline argument
-        add_to_notion(book_info=book_info, database_id='')
+        if no_notion is None:
+            add_to_notion(book_info=book_info, database_id=notion_database, notion_key=notion_key)
 
     pass
 
 
 if __name__ == '__main__':
-    main()
+    main(auto_envvar_prefix='BOOKS')
