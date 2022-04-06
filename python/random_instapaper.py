@@ -1,7 +1,8 @@
-from instapaper import Instapaper as ipaper
-import random
-import click
 import os
+import random
+
+import click
+from instapaper import Instapaper as ipaper
 
 
 def get_secrets_from_env():
