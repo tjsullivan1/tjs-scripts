@@ -1,0 +1,6 @@
+click==8.1.3
+httplib2==0.20.4
+instapaper==0.4
+oauth2==1.9.0.post1
+pyparsing==3.0.8
+typer==0.4.1

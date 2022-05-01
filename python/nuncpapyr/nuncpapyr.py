@@ -43,6 +43,9 @@ def random_article(
         ..., "--password", "-p", envvar="INSTAPAPER_PASSWORD", help="The user's password.", hide_input=True
     ),
 ):
+    '''
+    
+    '''
     i = build_context(key=key, secret=secret, email=email, password=password)
 
     marks = i.bookmarks(limit=500)
