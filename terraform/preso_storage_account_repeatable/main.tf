@@ -1,5 +1,5 @@
 terraform {
-  required_version = "~> 1.0.0"
+  required_version = "> 1.0.0"
   required_providers {
     azurerm = {
       source  = "registry.terraform.io/hashicorp/azurerm"
@@ -35,5 +35,5 @@ module "sa1" {
 
   resource_group_name = azurerm_resource_group.tjs.name
   storage_account_name = "sa" + var.disambiguation + resource.random_string.suffix + count.index
-  
+
 }
