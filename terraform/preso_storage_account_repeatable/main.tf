@@ -26,7 +26,7 @@ resource "random_string" "suffix" {
 }
 
 resource "azurerm_resource_group" "tjs" {
-  name = "rg-" + var.disambiguation + resource.random_string.suffix
+  name = "rg-${var.disambiguation}-${random_string.suffix.result}"
   location = var.location
 }
 
@@ -35,6 +35,6 @@ module "sa1" {
   source = "../modules/storage_account"
 
   resource_group_name = azurerm_resource_group.tjs.name
-  storage_account_name = "sa" + var.disambiguation + resource.random_string.suffix + count.index
+  storage_account_name = "sa${lower(var.disambiguation)}${random_string.suffix.result}${count.index}"
 
 }
