@@ -22,7 +22,11 @@ data "azurerm_subscription" "primary" {}
 data "azurerm_client_config" "current" {}
 
 resource "random_string" "suffix" {
-  length           = 4
+  length  = 4
+  lower   = true
+  number  = true
+  upper   = false
+  special = false
 }
 
 resource "azurerm_resource_group" "tjs" {
