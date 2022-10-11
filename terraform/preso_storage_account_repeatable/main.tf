@@ -27,6 +27,7 @@ resource "random_string" "suffix" {
 
 resource "azurerm_resource_group" "tjs" {
   name = "rg-" + var.disambiguation + resource.random_string.suffix
+  location = var.location
 }
 
 module "sa1" {
