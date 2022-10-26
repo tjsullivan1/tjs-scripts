@@ -99,7 +99,6 @@ $vmIds | ForEach-Object {
 }
 
 
-$updatedMachinesCommaSeperated = $updatedMachines -join ","
 #Wait until all machines have finished starting before proceeding to the Update Deployment
 $jobsList = $jobIDs.ToArray()
 if ($jobsList)
@@ -118,6 +117,3 @@ foreach($id in $jobsList)
 
 }
 
-Write-output $updatedMachinesCommaSeperated
-#Store output in the automation variable
-Set-AzAutomationVariable -Name $runId -Value $updatedMachinesCommaSeperated
