@@ -29,7 +29,7 @@ $AzureContext = (Connect-AzAccount -Identity).context
 $AzureContext = Set-AzContext -SubscriptionName $AzureContext.Subscription -DefaultProfile $AzureContext
 #endregion BoilerplateAuthentication
 
-$powerDown = Get-AzAutomationVariable -Name $runId
+$powerDown = Get-AutomationVariable -Name $runId
 if (!$powerDown) 
 {
     Write-Output "No machines to turn off"
@@ -46,22 +46,18 @@ $context = ConvertFrom-Json $SoftwareUpdateConfigurationRunContext
 $vmIds = $context.SoftwareUpdateConfigurationSettings.AzureVirtualMachines | Sort-Object -Unique
 $runId = $context.SoftwareUpdateConfigurationRunId
 
-if (!$vmIds) 
-{
-    #Workaround: Had to change JSON formatting
-    $Settings = ConvertFrom-Json $context.SoftwareUpdateConfigurationSettings
-    #Write-Output "List of settings: $Settings"
-    $VmIds = $Settings.AzureVirtualMachines
-    #Write-Output "Azure VMs: $VmIds"
-    if (!$vmIds) 
-    {
-        Write-Output "No Azure VMs found"
-        return
-    }
-}
-
-
 Write-Output $vmIds
+
+write-output "I could do other tasks here"
+
+$runs = Get-AzAutomationSoftwareUpdateMachineRun -SoftwareUpdateRunId $runid -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccountName | select MachineRunId,TargetComputer,Status
+$fails = $runs | where Status -ne Succeeded | select -ExpandProperty TargetComputer
+[System.Collections.ArrayList]$vms = @()
+
+$fails | % { $vm = $_.split('/')[8]; $vms.add($vm) }
+# NOW $vms will export a list of failed VMs
+
+write-output $vms
 
 #This script can run across subscriptions, so we need unique identifiers for each VMs
 #Azure VMs are expressed by:
@@ -88,12 +84,11 @@ $powerDownVms | ForEach-Object {
     }
 }
 
-
-#Wait until all machines have finished starting before proceeding to the Update Deployment
+#Wait for all machines to finish stopping so we can include the results as part of the Update Deployment
 $jobsList = $jobIDs.ToArray()
 if ($jobsList)
 {
-    Write-Output "Waiting for machines to finish starting..."
+    Write-Output "Waiting for machines to finish stopping..."
     Wait-Job -Id $jobsList
 }
 
@@ -104,7 +99,6 @@ foreach($id in $jobsList)
     {
         Write-Output $job.Error
     }
-
 }
 
 #Clean up our variables:
