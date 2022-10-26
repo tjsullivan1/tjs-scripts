@@ -29,7 +29,7 @@ $AzureContext = (Connect-AzAccount -Identity).context
 $AzureContext = Set-AzContext -SubscriptionName $AzureContext.Subscription -DefaultProfile $AzureContext
 #endregion BoilerplateAuthentication
 
-$powerDown = Get-AutomationVariable -Name $runId
+$powerDown = Get-AzAutomationVariable -Name $runId
 if (!$powerDown) 
 {
     Write-Output "No machines to turn off"
