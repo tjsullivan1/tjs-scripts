@@ -61,40 +61,30 @@ if (!$vmIds)
 }
 
 
-#This is used to store the state of VMs
-New-AzAutomationVariable -ResourceGroupName $ResourceGroup -AutomationAccountName $AutomationAccount -Name $runId -Value "" -Encrypted $false
-
 Write-Output $vmIds
 
-$updatedMachines = @()
-$startableStates = "stopped" , "stopping", "deallocated", "deallocating"
-$jobIDs= New-Object System.Collections.Generic.List[System.Object]
-
-#Parse the list of VMs and start those which are stopped
+#This script can run across subscriptions, so we need unique identifiers for each VMs
 #Azure VMs are expressed by:
 # subscription/$subscriptionID/resourcegroups/$resourceGroup/providers/microsoft.compute/virtualmachines/$name
-$vmIds | ForEach-Object {
-    $vmId =  $_
+$powerDownVms | ForEach-Object {
+    $powerDownVm =  $_
     
-    $split = $vmId -split "/";
+    $split = $powerDownVm -split "/";
     $subscriptionId = $split[2]; 
     $rg = $split[4];
     $name = $split[8];
     Write-Output ("Subscription Id: " + $subscriptionId)
     $mute = Select-AzSubscription -Subscription $subscriptionId
 
-    $vm = Get-AzVM -ResourceGroupName $rg -Name $name -Status -DefaultProfile $mute 
+    $vm = Get-AzVM -ResourceGroupName $rg -Name $name -Status -DefaultProfile $mute
 
-    #Query the state of the VM to see if it's already running or if it's already started
     $state = ($vm.Statuses[1].DisplayStatus -split " ")[1]
-    if($state -in $startableStates) {
-        Write-Output "Starting '$($name)' ..."
-        #Store the VM we started so we remember to shut it down later
-        $updatedMachines += $vmId
-        $newJob = Start-ThreadJob -ScriptBlock { param($resource, $vmname, $sub) $context = Select-AzSubscription -Subscription $sub; Stop-AzVM -ResourceGroupName $resource -Name $vmname -DefaultProfile $context} -ArgumentList $rg,$name,$subscriptionId
+    if($state -in $stoppableStates) {
+        Write-Output "Stopping '$($name)' ..."
+        $newJob = Start-ThreadJob -ScriptBlock { param($resource, $vmname, $sub) $context = Select-AzSubscription -Subscription $sub; Stop-AzVM -ResourceGroupName $resource -Name $vmname -Force -DefaultProfile $context} -ArgumentList $rg,$name,$subscriptionId
         $jobIDs.Add($newJob.Id)
     }else {
-        Write-Output ($name + ": no action taken. State: " + $state) 
+        Write-Output ($name + ": already stopped. State: " + $state) 
     }
 }
 
@@ -117,3 +107,5 @@ foreach($id in $jobsList)
 
 }
 
+#Clean up our variables:
+Remove-AzAutomationVariable -AutomationAccountName $AutomationAccount -ResourceGroupName $ResourceGroup -name $runID
