@@ -91,7 +91,7 @@ $vmIds | ForEach-Object {
         Write-Output "Starting '$($name)' ..."
         #Store the VM we started so we remember to shut it down later
         $updatedMachines += $vmId
-        $newJob = Start-ThreadJob -ScriptBlock { param($resource, $vmname, $sub) $context = Select-AzSubscription -Subscription $sub; Start-AzVM -ResourceGroupName $resource -Name $vmname -DefaultProfile $context} -ArgumentList $rg,$name,$subscriptionId
+        $newJob = Start-ThreadJob -ScriptBlock { param($resource, $vmname, $sub) $context = Select-AzSubscription -Subscription $sub; Stop-AzVM -ResourceGroupName $resource -Name $vmname -DefaultProfile $context} -ArgumentList $rg,$name,$subscriptionId
         $jobIDs.Add($newJob.Id)
     }else {
         Write-Output ($name + ": no action taken. State: " + $state) 
