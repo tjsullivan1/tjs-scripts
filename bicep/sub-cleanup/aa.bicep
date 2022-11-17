@@ -16,6 +16,7 @@ resource myaa 'Microsoft.Automation/automationAccounts@2022-08-08' = {
 
 resource myaa_cleanup_runbook 'Microsoft.Automation/automationAccounts/runbooks@2022-08-08' = {
   name: '${automation_account_name}/Remove-ExpireResources'
+  location: location
   properties: {
     runbookType: 'PowerShell'
     publishContentLink: {
