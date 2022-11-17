@@ -27,8 +27,7 @@ resource myaa_cleanup_runbook 'Microsoft.Automation/automationAccounts/runbooks@
 }
 
 resource myaa_DailySchedule 'Microsoft.Automation/automationAccounts/schedules@2020-01-13-preview' = {
-  parent: myaa
-  name: 'DailySchedule'
+  name: '${automation_account_name}/DailySchedule'
   properties: {
     startTime: start_time
     expiryTime: '9999-12-31T17:59:00-06:00'
