@@ -61,6 +61,9 @@ resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06
 resource expirationAssignment 'Microsoft.Authorization/policyAssignments@2021-06-01' = {
   name: 'Add Expiration Date'
   scope: subscription()
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     displayName: 'Add Expiration Date to Resource Group'
     description: 'This script will add an expiration date to a resource group.'
