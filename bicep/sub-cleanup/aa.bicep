@@ -37,7 +37,7 @@ resource myaa_DailySchedule 'Microsoft.Automation/automationAccounts/schedules@2
   }
 }
 
-resource myaa_jobSchedule_cleanup 'Microsoft.Automation/automationAccounts/jobSchedules@2022-08-08' = {
+resource myaa_jobSchedule_cleanup 'Microsoft.Automation/automationAccounts/jobSchedules@2020-01-13-preview' = {
   name: '${automation_account_name}/Remove-ExpireResourcesSchedule'
   properties: {
     runbook: {
