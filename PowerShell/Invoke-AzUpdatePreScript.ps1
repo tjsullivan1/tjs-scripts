@@ -53,7 +53,7 @@ if (!$vmIds)
 
 
 #This is used to store the state of VMs
-New-AzAutomationVariable -ResourceGroupName $ResourceGroup -AutomationAccountName $AutomationAccount -Name $runId -Value "" -Encrypted $false
+New-AzAutomationVariable -ResourceGroupName $ResourceGroupName -AutomationAccountName $AutomationAccount -Name $runId -Value "" -Encrypted $false
 
 Write-Output $vmIds
 
