@@ -1,5 +1,9 @@
 targetScope = 'subscription'
 param deployment_location string = deployment().location
+param tag_name string = 'ExpirationDate'
+param days_to_add int = 2
+param resource_group_name string = 'rg-core-it'
+param automation_account_name string = 'aa-tjs-01'
 
 resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06-01' = {
   name: 'Add Expiration Date'
@@ -73,17 +77,17 @@ resource expirationAssignment 'Microsoft.Authorization/policyAssignments@2021-06
     enforcementMode: 'Default'
     parameters: {
       tagName: {
-        value: 'ExpirationDate'
+        value: tag_name
       }
       days_to_add: {
-        value: 2
+        value: days_to_add
       }
     }
   }
 }
 
 resource coreRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
-  name: 'rg-core-it'
+  name: resource_group_name
   location: deployment_location
   tags: {
     LongLived: 'True'
@@ -91,10 +95,10 @@ resource coreRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
 }
 
 module automationaccount 'aa.bicep' = {
-  name: 'aa-tjs-01'
-  scope: resourceGroup('rg-core-it')
+  name: automation_account_name
+  scope: resourceGroup(resource_group_name)
   params: {
-    automation_account_name: 'aa-tjs-01'
+    automation_account_name: automation_account_name
     location: deployment_location
   }
   dependsOn: [
