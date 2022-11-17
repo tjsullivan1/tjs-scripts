@@ -24,3 +24,27 @@ resource myaa_cleanup_runbook 'Microsoft.Automation/automationAccounts/runbooks@
     }
   }
 }
+
+resource myaa_DailySchedule 'Microsoft.Automation/automationAccounts/schedules@2020-01-13-preview' = {
+  parent: myaa
+  name: 'DailySchedule'
+  properties: {
+    startTime: '2021-06-02T07:00:00-05:00'
+    expiryTime: '9999-12-31T17:59:00-06:00'
+    interval: 1
+    frequency: 'Day'
+    timeZone: 'America/Chicago'
+  }
+}
+
+resource myaa_jobSchedule_cleanup 'Microsoft.Automation/automationAccounts/jobSchedules@2022-08-08' = {
+  name: '${automation_account_name}/Remove-ExpireResourcesSchedule'
+  properties: {
+    runbook: {
+      name: myaa_cleanup_runbook.name
+    }
+    schedule: {
+      name: myaa_DailySchedule.name
+    }
+  }
+}
