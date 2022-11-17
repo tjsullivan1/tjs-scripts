@@ -1,5 +1,6 @@
 param automation_account_name string 
 param location string = resourceGroup().location
+param start_time string = utcNow(+1d)
 
 resource myaa 'Microsoft.Automation/automationAccounts@2022-08-08' = {
   name: automation_account_name
@@ -29,7 +30,7 @@ resource myaa_DailySchedule 'Microsoft.Automation/automationAccounts/schedules@2
   parent: myaa
   name: 'DailySchedule'
   properties: {
-    startTime: '2021-06-02T07:00:00-05:00'
+    startTime: start_time
     expiryTime: '9999-12-31T17:59:00-06:00'
     interval: 1
     frequency: 'Day'
