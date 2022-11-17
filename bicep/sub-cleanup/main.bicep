@@ -97,5 +97,7 @@ module automationaccount 'aa.bicep' = {
     automation_account_name: 'aa-tjs-01'
     location: deployment_location
   }
-  dependsOn: coreRg
+  dependsOn: [
+    coreRg
+  ]
 }
