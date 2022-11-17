@@ -16,7 +16,7 @@ resource myaa 'Microsoft.Automation/automationAccounts@2022-08-08' = {
 }
 
 resource myaa_cleanup_runbook 'Microsoft.Automation/automationAccounts/runbooks@2022-08-08' = {
-  name: '${automation_account_name}/Remove-ExpireResources'
+  name: '${automation_account_name}/Remove-ExpiredResources'
   location: location
   properties: {
     runbookType: 'PowerShell'
@@ -39,13 +39,13 @@ resource myaa_DailySchedule 'Microsoft.Automation/automationAccounts/schedules@2
 
 resource myaa_jobSchedule_cleanup 'Microsoft.Automation/automationAccounts/jobSchedules@2020-01-13-preview' = {
   parent: myaa
-  name: 'b7a0590c-d186-4036-bc98-ae52fb255db8'
+  name: guid(automation_account_name, 'Cleanup')
   properties: {
     runbook: {
-      name: myaa_cleanup_runbook.name
+      name: 'Remove-ExpiredResources'
     }
     schedule: {
-      name: myaa_DailySchedule.name
+      name: 'DailySchedule'
     }
   }
 }
