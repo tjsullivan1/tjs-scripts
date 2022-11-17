@@ -34,7 +34,7 @@ resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06
             equals: 'Microsoft.Resources/subscriptions/resourceGroups'
           }
           {
-            field: '[concat("tags[', parameters('tagName'), ']")]'
+            field: '[concat("tags[", parameters("tagName"), "]")]'
             notEquals: 'DefaultResourceGroup-EUS'
           }
         ]
