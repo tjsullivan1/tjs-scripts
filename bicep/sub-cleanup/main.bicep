@@ -81,3 +81,11 @@ resource expirationAssignment 'Microsoft.Authorization/policyAssignments@2021-06
     }
   }
 }
+
+resource coreRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
+  name: 'rg-core-it'
+  location: deployment_location
+  tags: {
+    LongLived: 'True'
+  }
+}
