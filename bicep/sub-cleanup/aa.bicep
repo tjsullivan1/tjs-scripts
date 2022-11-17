@@ -1,6 +1,6 @@
 param automation_account_name string 
 param location string = resourceGroup().location
-param start_time string = utcNow(+1d)
+param start_time string = dateTimeAdd(utcNow(), 'PT1H')
 
 resource myaa 'Microsoft.Automation/automationAccounts@2022-08-08' = {
   name: automation_account_name
