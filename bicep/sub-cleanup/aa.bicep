@@ -48,4 +48,8 @@ resource myaa_jobSchedule_cleanup 'Microsoft.Automation/automationAccounts/jobSc
       name: 'DailySchedule'
     }
   }
+  dependsOn: [
+    myaa_cleanup_runbook
+    myaa_DailySchedule
+  ]
 }
