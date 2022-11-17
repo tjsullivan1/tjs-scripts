@@ -26,34 +26,6 @@ resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06
       }
     }
     policyType: 'Custom'
-    policyRule: {
-      if: {
-        allOf: [
-          {
-            field: 'type'
-            equals: 'Microsoft.Resources/subscriptions/resourceGroups'
-          }
-          {
-            field: '[concat("tags[", parameters("tagName"), "]")]'
-            notEquals: 'DefaultResourceGroup-EUS'
-          }
-        ]
-      }
-      then: {
-        effect: 'modify'
-        details: {
-          roleDefinitionIds: [
-            '/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c'
-          ]
-          operations: [
-            {
-              operation: 'add'
-              path: 'tags[parameters("tagName")]'
-              value: 'formatDateTime(addDays(now(), parameters("daysToAdd")), "yyyy-MM-dd")'
-            }
-          ]
-        }
-      }
-    }
+    policyRule: any(loadTextContent('expirationPolicy.json'))
   }  
 }
