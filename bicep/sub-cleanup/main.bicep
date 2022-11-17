@@ -89,3 +89,12 @@ resource coreRg 'Microsoft.Resources/resourceGroups@2021-04-01' = {
     LongLived: 'True'
   }
 }
+
+module automationaccount 'aa.bicep' = {
+  name: 'aa-tjs-01'
+  scope: resourceGroup('rg-core-it')
+  params: {
+    automation_account_name: 'aa-tjs-01'
+    location: deployment_location
+  }
+}
