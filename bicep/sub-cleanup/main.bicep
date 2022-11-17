@@ -16,7 +16,7 @@ resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06
         }
         defaultValue: 'ExpirationDate'
       }
-      daysToAdd: {
+      days_to_add: {
         type: 'Integer'
         metadata: {
           displayName: 'Days to Add'
@@ -34,7 +34,7 @@ resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06
             equals: 'Microsoft.Resources/subscriptions/resourceGroups'
           }
           {
-            field:'tags[parameters(\'tagName\')]'
+            field: '[concat(\'tags[\', parameters(\'tagName\'), \']\')]'
             exists: false
           }
         ]
@@ -48,8 +48,8 @@ resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06
           operations: [
             {
               operation: 'add'
-              path: 'tags[parameters(\'tagName\')]'
-              value: 'formatDateTime(addDays(now(), parameters(\'daysToAdd\')), \'yyyy-MM-dd\')'
+              field: '[concat(\'tags[\', parameters(\'tagName\'), \']\')]'
+              value:  '[addDays(utcNow(), parameters(\'days_to_add\'))]'
             }
           ]
         }
