@@ -1,4 +1,5 @@
 targetScope = 'subscription'
+param deployment_location string = deployment().location
 
 resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06-01' = {
   name: 'Add Expiration Date'
@@ -61,6 +62,7 @@ resource expirationDefinition 'Microsoft.Authorization/policyDefinitions@2021-06
 resource expirationAssignment 'Microsoft.Authorization/policyAssignments@2021-06-01' = {
   name: 'Add Expiration Date'
   scope: subscription()
+  location: deployment_location
   identity: {
     type: 'SystemAssigned'
   }
