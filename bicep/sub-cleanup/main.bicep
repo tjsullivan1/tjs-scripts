@@ -98,3 +98,13 @@ module automationaccount 'aa.bicep' = {
     location: deployment_location
   }
 }
+
+module automationaccount2 'aa.bicep' = {
+  name: 'aa-tjs-02'
+  scope: resourceGroup('rg-core-it')
+  params: {
+    automation_account_name: 'aa-tjs-02'
+    location: deployment_location
+  }
+}
+

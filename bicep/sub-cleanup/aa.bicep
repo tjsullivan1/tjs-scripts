@@ -13,15 +13,3 @@ resource myaa 'Microsoft.Automation/automationAccounts@2022-08-08' = {
     }
   }
 }
-
-
-// Define the modules for the AA
-resource module_Az_Accounts 'Microsoft.Automation/automationAccounts/modules@2020-01-13-preview' = {
-  parent: myaa
-  name: 'Az'
-  properties: {
-    contentLink: {
-      uri: 'https://www.powershellgallery.com/packages/Az/9.1.1'
-    }
-  }
-}
