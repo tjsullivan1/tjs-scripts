@@ -146,3 +146,17 @@ resource "azurerm_linux_virtual_machine" "tester" {
   }
 }
 
+resource "azurerm_api_management" "apim" {
+  name                = "apim-${var.disambiguation}-${random_string.suffix.result}"
+  location            = azurerm_resource_group.apim.location
+  resource_group_name = azurerm_resource_group.apim.name
+  publisher_name      = "Sullivan Enterprises"
+  publisher_email     = "tim@sullivanenterprises.org"
+
+  sku_name = "Developer_1"
+
+  virtual_network_type = "External"
+    virtual_network_configuration {
+        subnet_id = azurerm_subnet.apim.id
+    }
+}
