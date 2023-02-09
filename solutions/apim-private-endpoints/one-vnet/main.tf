@@ -209,3 +209,25 @@ resource "azurerm_linux_function_app" "func1" {
     azurerm_service_plan.aspfunc1,
   ]
 }
+
+resource "azurerm_private_dns_zone" "vnetapim" {
+  name                = "privatelink.azurewebsites.net"
+  resource_group_name = azurerm_resource_group.vnetapim.name
+}
+
+resource "azurerm_private_endpoint" "example_functions_app" {
+  name                = "pe-func-${var.disambiguation}-${random_string.suffix.result}-func1"
+  location            = azurerm_resource_group.vnetapim.location
+  resource_group_name = azurerm_resource_group.vnetapim.name
+  subnet_id           = azurerm_subnet.function.id
+  private_dns_zone_id = azurerm_private_dns_zone.vnetapim.id
+
+  dns_config {
+    name    = "func-${var.disambiguation}-${random_string.suffix.result}-func1"
+    records = [
+      "func-${var.disambiguation}-${random_string.suffix.result}-func1.privatelink.azurewebsites.net"
+    ]
+  }
+
+  target_resource_id = azurerm_linux_function_app.func1.id
+}
