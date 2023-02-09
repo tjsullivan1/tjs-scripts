@@ -140,8 +140,9 @@ resource "azurerm_linux_virtual_machine" "tester" {
 
   source_image_reference {
     publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "20.04-LTS"
+    offer     = "0001-com-ubuntu-server-focal"
+    sku       = "20_04-LTS"
     version   = "latest"
   }
 }
+
