@@ -48,62 +48,62 @@ resource "azurerm_resource_group" "vnetapim" {
   location = var.location
 
   # Uncomment for Demo on Challenges
-   lifecycle {
-     ignore_changes = [ tags, ]
-   }
+  lifecycle {
+    ignore_changes = [tags, ]
+  }
 }
 
 # Will uncomment this when we get to the second VNet
 #resource "azurerm_resource_group" "tjs" {
-  #name     = "rg-${var.disambiguation}-${random_string.suffix.result}"
-  #location = var.location
+#name     = "rg-${var.disambiguation}-${random_string.suffix.result}"
+#location = var.location
 
-  # Uncomment for Demo on Challenges
-  # lifecycle {
-  #   ignore_changes = [ tags, ]
-  # }
+# Uncomment for Demo on Challenges
+# lifecycle {
+#   ignore_changes = [ tags, ]
+# }
 #}
 
 resource "azurerm_virtual_network" "vnetapim" {
   name                = "vnet-${var.disambiguation}-${random_string.suffix.result}-main"
   address_space       = ["10.100.0.0/16"]
-    location            = azurerm_resource_group.vnetapim.location
-    resource_group_name = azurerm_resource_group.vnetapim.name
+  location            = azurerm_resource_group.vnetapim.location
+  resource_group_name = azurerm_resource_group.vnetapim.name
 }
 
 resource "azurerm_subnet" "appgw" {
-    name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-appgw"
-    resource_group_name  = azurerm_resource_group.vnetapim.name
-    virtual_network_name = azurerm_virtual_network.vnetapim.name
-    address_prefixes     = ["10.100.0.0/24"]
+  name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-appgw"
+  resource_group_name  = azurerm_resource_group.vnetapim.name
+  virtual_network_name = azurerm_virtual_network.vnetapim.name
+  address_prefixes     = ["10.100.0.0/24"]
 }
 
 resource "azurerm_subnet" "apim" {
-    name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-apim"
-    resource_group_name  = azurerm_resource_group.vnetapim.name
-    virtual_network_name = azurerm_virtual_network.vnetapim.name
-    address_prefixes     = ["10.100.1.0/24"]
+  name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-apim"
+  resource_group_name  = azurerm_resource_group.vnetapim.name
+  virtual_network_name = azurerm_virtual_network.vnetapim.name
+  address_prefixes     = ["10.100.1.0/24"]
 }
 
 resource "azurerm_subnet" "function" {
-    name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-function"
-    resource_group_name  = azurerm_resource_group.vnetapim.name
-    virtual_network_name = azurerm_virtual_network.vnetapim.name
-    address_prefixes     = ["10.100.2.0/24"]
+  name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-function"
+  resource_group_name  = azurerm_resource_group.vnetapim.name
+  virtual_network_name = azurerm_virtual_network.vnetapim.name
+  address_prefixes     = ["10.100.2.0/24"]
 }
 
 resource "azurerm_subnet" "function2" {
-    name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-function2"
-    resource_group_name  = azurerm_resource_group.vnetapim.name
-    virtual_network_name = azurerm_virtual_network.vnetapim.name
-    address_prefixes     = ["10.100.3.0/24"]
+  name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-function2"
+  resource_group_name  = azurerm_resource_group.vnetapim.name
+  virtual_network_name = azurerm_virtual_network.vnetapim.name
+  address_prefixes     = ["10.100.3.0/24"]
 }
 
 resource "azurerm_subnet" "vms" {
-    name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-vms"
-    resource_group_name  = azurerm_resource_group.vnetapim.name
-    virtual_network_name = azurerm_virtual_network.vnetapim.name
-    address_prefixes     = ["10.100.4.0/24"]
+  name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-vms"
+  resource_group_name  = azurerm_resource_group.vnetapim.name
+  virtual_network_name = azurerm_virtual_network.vnetapim.name
+  address_prefixes     = ["10.100.4.0/24"]
 }
 
 resource "azurerm_network_interface" "tester" {
@@ -156,9 +156,9 @@ resource "azurerm_api_management" "apim" {
   sku_name = "Developer_1"
 
   virtual_network_type = "External"
-    virtual_network_configuration {
-        subnet_id = azurerm_subnet.apim.id
-    }
+  virtual_network_configuration {
+    subnet_id = azurerm_subnet.apim.id
+  }
 }
 
 resource "azurerm_storage_account" "sa" {
@@ -190,17 +190,17 @@ resource "azurerm_linux_function_app" "func1" {
 
 
   identity {
-    
+
     type = "SystemAssigned"
   }
 
   app_settings = {
-    FUNCTIONS_WORKER_RUNTIME   = "python"
+    FUNCTIONS_WORKER_RUNTIME = "python"
   }
 
   site_config {
-    ftps_state               = "AllAllowed"
-    http2_enabled            = true
+    ftps_state    = "AllAllowed"
+    http2_enabled = true
     application_stack {
       python_version = "3.9"
     }
@@ -215,19 +215,24 @@ resource "azurerm_private_dns_zone" "vnetapim" {
   resource_group_name = azurerm_resource_group.vnetapim.name
 }
 
-resource "azurerm_private_endpoint" "example_functions_app" {
+resource "azurerm_private_endpoint" "func1" {
   name                = "pe-func-${var.disambiguation}-${random_string.suffix.result}-func1"
   location            = azurerm_resource_group.vnetapim.location
   resource_group_name = azurerm_resource_group.vnetapim.name
   subnet_id           = azurerm_subnet.function.id
-  private_dns_zone_id = azurerm_private_dns_zone.vnetapim.id
+  #private_dns_zone_id = azurerm_private_dns_zone.vnetapim.id
 
-  dns_config {
-    name    = "func-${var.disambiguation}-${random_string.suffix.result}-func1"
-    records = [
-      "func-${var.disambiguation}-${random_string.suffix.result}-func1.privatelink.azurewebsites.net"
-    ]
+  #dns_config {
+  #name    = "func-${var.disambiguation}-${random_string.suffix.result}-func1"
+  #records = [
+  #"func-${var.disambiguation}-${random_string.suffix.result}-func1.privatelink.azurewebsites.net"
+  #]
+  #}
+
+  private_service_connection {
+    name                           = "psc-func-${var.disambiguation}-${random_string.suffix.result}-func1"
+    private_connection_resource_id = azurerm_linux_function_app.func1.id
+    subresource_names              = []
+    is_manual_connection           = false
   }
-
-  target_resource_id = azurerm_linux_function_app.func1.id
 }
