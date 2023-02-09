@@ -107,7 +107,7 @@ resource "azurerm_subnet" "vms" {
 }
 
 resource "azurerm_network_interface" "tester" {
-  name                = "tester-nic"
+  name                = "nic-${var.disambiguation}-${random_string.suffix.result}-tester"
   location            = azurerm_resource_group.vnetapim.location
   resource_group_name = azurerm_resource_group.vnetapim.name
 
@@ -119,7 +119,7 @@ resource "azurerm_network_interface" "tester" {
 }
 
 resource "azurerm_linux_virtual_machine" "tester" {
-  name                = "tester"
+  name                = "vm-${var.disambiguation}-${random_string.suffix.result}-tester"
   resource_group_name = azurerm_resource_group.vnetapim.name
   location            = azurerm_resource_group.vnetapim.location
   size                = "Standard_B4ms"
