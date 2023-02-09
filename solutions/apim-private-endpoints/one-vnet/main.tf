@@ -48,9 +48,9 @@ resource "azurerm_resource_group" "vnetapim" {
   location = var.location
 
   # Uncomment for Demo on Challenges
-  # lifecycle {
-  #   ignore_changes = [ tags, ]
-  # }
+   lifecycle {
+     ignore_changes = [ tags, ]
+   }
 }
 
 # Will uncomment this when we get to the second VNet
@@ -159,4 +159,40 @@ resource "azurerm_api_management" "apim" {
     virtual_network_configuration {
         subnet_id = azurerm_subnet.apim.id
     }
+}
+
+resource "azurerm_service_plan" "aspfunc1" {
+  location            = var.location
+  name                = "asp-${var.disambiguation}-${random_string.suffix.result}-func1"
+  os_type             = "Linux"
+  resource_group_name = azurerm_resource_group.vnetapim.name
+  sku_name            = "Y1"
+}
+
+resource "azurerm_linux_function_app" "func1" {
+  builtin_logging_enabled    = false
+  client_certificate_mode    = "Required"
+  location                   = var.location
+  name                       = "func-${var.disambiguation}-${random_string.suffix.result}-func1"
+  resource_group_name        = azurerm_resource_group.vnetapim.name
+  service_plan_id            = azurerm_service_plan.aspfunc1.id
+
+  identity {
+    type = "SystemAssigned"
+  }
+
+  app_settings = {
+    FUNCTIONS_WORKER_RUNTIME   = "python"
+  }
+
+  site_config {
+    ftps_state               = "AllAllowed"
+    http2_enabled            = true
+    application_stack {
+      python_version = "3.9"
+    }
+  }
+  depends_on = [
+    azurerm_service_plan.aspfunc1,
+  ]
 }
