@@ -161,6 +161,15 @@ resource "azurerm_api_management" "apim" {
     }
 }
 
+resource "azurerm_storage_account" "sa" {
+  name                     = "sa${var.disambiguation}${random_string.suffix.result}"
+  resource_group_name      = azurerm_resource_group.vnetapim.name
+  location                 = azurerm_resource_group.vnetapim.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+}
+
+
 resource "azurerm_service_plan" "aspfunc1" {
   location            = var.location
   name                = "asp-${var.disambiguation}-${random_string.suffix.result}-func1"
@@ -176,8 +185,12 @@ resource "azurerm_linux_function_app" "func1" {
   name                       = "func-${var.disambiguation}-${random_string.suffix.result}-func1"
   resource_group_name        = azurerm_resource_group.vnetapim.name
   service_plan_id            = azurerm_service_plan.aspfunc1.id
+  storage_account_access_key = azurerm_storage_account.sa.primary_access_key
+  storage_account_name       = azurerm_storage_account.sa.name
+
 
   identity {
+    
     type = "SystemAssigned"
   }
 
