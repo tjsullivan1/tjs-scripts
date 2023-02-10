@@ -12,6 +12,9 @@ sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsof
 sudo apt-get update -y
 sudo apt-get install azure-functions-core-tools-4 -y
 
+# Login to Azure
+az login
+
 # Deploy the code to the Azure Functions
 func azure functionapp publish func-tjsapi-2wjc-func1
 func azure functionapp publish func-tjsapi-2wjc-func2
