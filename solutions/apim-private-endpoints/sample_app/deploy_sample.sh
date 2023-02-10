@@ -16,6 +16,6 @@ sudo apt-get install azure-functions-core-tools-4 -y
 az login
 
 # Deploy the code to the Azure Functions
-func azure functionapp publish func-tjsapi-2wjc-func1
-func azure functionapp publish func-tjsapi-2wjc-func2
-func azure functionapp publish func-tjsapi-2wjc-func3
+func azure functionapp publish func-tjsapi-2wjc-func1 --python
+func azure functionapp publish func-tjsapi-2wjc-func2 --python
+func azure functionapp publish func-tjsapi-2wjc-func3 --python
