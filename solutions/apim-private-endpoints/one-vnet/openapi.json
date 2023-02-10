@@ -1,0 +1,57 @@
+{
+    "openapi": "3.0.1",
+    "info": {
+        "title": "func1",
+        "description": "Import from \"func-tjsapi-p86x-func1\" Function App",
+        "version": "1.0"
+    },
+    "servers": [
+        {
+            "url": "https://apim-tjsapi-p86x.azure-api.net/func1"
+        }
+    ],
+    "paths": {
+        "/HelloMe": {
+            "post": {
+                "summary": "HelloMe",
+                "operationId": "post-hellome",
+                "responses": {
+                    "200": {
+                        "description": null
+                    }
+                }
+            },
+            "get": {
+                "summary": "HelloMe",
+                "operationId": "get-hellome",
+                "responses": {
+                    "200": {
+                        "description": null
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "apiKeyHeader": {
+                "type": "apiKey",
+                "name": "Ocp-Apim-Subscription-Key",
+                "in": "header"
+            },
+            "apiKeyQuery": {
+                "type": "apiKey",
+                "name": "subscription-key",
+                "in": "query"
+            }
+        }
+    },
+    "security": [
+        {
+            "apiKeyHeader": []
+        },
+        {
+            "apiKeyQuery": []
+        }
+    ]
+}

@@ -106,6 +106,14 @@ resource "azurerm_subnet" "vms" {
   address_prefixes     = ["10.100.4.0/24"]
 }
 
+resource "azurerm_public_ip" "tester-pip" {
+allocation_method = "Dynamic"
+name                = "pip-${var.disambiguation}-${random_string.suffix.result}-tester" 
+resource_group_name = azurerm_resource_group.vnetapim.name
+location            = azurerm_resource_group.vnetapim.location
+
+}
+
 resource "azurerm_network_interface" "tester" {
   name                = "nic-${var.disambiguation}-${random_string.suffix.result}-tester"
   location            = azurerm_resource_group.vnetapim.location
@@ -115,7 +123,7 @@ resource "azurerm_network_interface" "tester" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.vms.id
     private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = "/subscriptions/f33f4d2a-99ac-47ab-8142-a5f6f768020f/resourceGroups/rg-tjsapi-p86x-main/providers/Microsoft.Network/publicIPAddresses/tmp"
+    public_ip_address_id          = azurerm_public_ip.tester-pip.id
   }
 }
 
@@ -198,6 +206,10 @@ resource "azurerm_linux_function_app" "func1" {
   app_settings = {
     FUNCTIONS_WORKER_RUNTIME = "python"
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
+    BUILD_FLAGS = "UseExpressBuild"
+    ENABLE_ORYX_BUILD = "true"
+    SCM_DO_BUILD_DURING_DEPLOYMENT = "1"
+    XDG_CACHE_HOME = "/tmp/.cache"
     function_name = "1"
   }
 
@@ -231,6 +243,10 @@ resource "azurerm_linux_function_app" "func2" {
   app_settings = {
     FUNCTIONS_WORKER_RUNTIME = "python"
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
+    BUILD_FLAGS = "UseExpressBuild"
+    ENABLE_ORYX_BUILD = "true"
+    SCM_DO_BUILD_DURING_DEPLOYMENT = "1"
+    XDG_CACHE_HOME = "/tmp/.cache"
     function_name = "2"
   }
 
@@ -316,6 +332,10 @@ resource "azurerm_linux_function_app" "func3" {
   app_settings = {
     FUNCTIONS_WORKER_RUNTIME = "python"
     WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
+    BUILD_FLAGS = "UseExpressBuild"
+    ENABLE_ORYX_BUILD = "true"
+    SCM_DO_BUILD_DURING_DEPLOYMENT = "1"
+    XDG_CACHE_HOME = "/tmp/.cache"
     function_name = "3"
   }
 
