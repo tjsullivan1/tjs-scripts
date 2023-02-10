@@ -115,6 +115,7 @@ resource "azurerm_network_interface" "tester" {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.vms.id
     private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = "/subscriptions/f33f4d2a-99ac-47ab-8142-a5f6f768020f/resourceGroups/rg-tjsapi-p86x-main/providers/Microsoft.Network/publicIPAddresses/tmp"
   }
 }
 
@@ -175,7 +176,7 @@ resource "azurerm_service_plan" "aspfunc1" {
   name                = "asp-${var.disambiguation}-${random_string.suffix.result}-func1"
   os_type             = "Linux"
   resource_group_name = azurerm_resource_group.vnetapim.name
-  sku_name            = "Y1"
+  sku_name            = "EP1"
 }
 
 resource "azurerm_linux_function_app" "func1" {
@@ -196,6 +197,41 @@ resource "azurerm_linux_function_app" "func1" {
 
   app_settings = {
     FUNCTIONS_WORKER_RUNTIME = "python"
+    WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
+    function_name = "1"
+  }
+
+  site_config {
+    ftps_state    = "AllAllowed"
+    http2_enabled = true
+    application_stack {
+      python_version = "3.9"
+    }
+  }
+  depends_on = [
+    azurerm_service_plan.aspfunc1,
+  ]
+}
+resource "azurerm_linux_function_app" "func2" {
+  builtin_logging_enabled    = false
+  client_certificate_mode    = "Required"
+  location                   = var.location
+  name                       = "func-${var.disambiguation}-${random_string.suffix.result}-func2"
+  resource_group_name        = azurerm_resource_group.vnetapim.name
+  service_plan_id            = azurerm_service_plan.aspfunc1.id
+  storage_account_access_key = azurerm_storage_account.sa.primary_access_key
+  storage_account_name       = azurerm_storage_account.sa.name
+
+
+  identity {
+
+    type = "SystemAssigned"
+  }
+
+  app_settings = {
+    FUNCTIONS_WORKER_RUNTIME = "python"
+    WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
+    function_name = "2"
   }
 
   site_config {
@@ -215,24 +251,82 @@ resource "azurerm_private_dns_zone" "vnetapim" {
   resource_group_name = azurerm_resource_group.vnetapim.name
 }
 
+resource "azurerm_private_dns_zone_virtual_network_link" "toapimvnet" {
+  name                  = "test"
+  resource_group_name   = azurerm_resource_group.vnetapim.name
+  private_dns_zone_name = azurerm_private_dns_zone.vnetapim.name
+  virtual_network_id    = azurerm_virtual_network.vnetapim.id
+}
+
+
 resource "azurerm_private_endpoint" "func1" {
   name                = "pe-func-${var.disambiguation}-${random_string.suffix.result}-func1"
   location            = azurerm_resource_group.vnetapim.location
   resource_group_name = azurerm_resource_group.vnetapim.name
   subnet_id           = azurerm_subnet.function.id
-  #private_dns_zone_id = azurerm_private_dns_zone.vnetapim.id
-
-  #dns_config {
-  #name    = "func-${var.disambiguation}-${random_string.suffix.result}-func1"
-  #records = [
-  #"func-${var.disambiguation}-${random_string.suffix.result}-func1.privatelink.azurewebsites.net"
-  #]
-  #}
+  private_dns_zone_group {
+    name = azurerm_private_dns_zone.vnetapim.name
+    private_dns_zone_ids = [
+    azurerm_private_dns_zone.vnetapim.id, ]
+  }
 
   private_service_connection {
     name                           = "psc-func-${var.disambiguation}-${random_string.suffix.result}-func1"
     private_connection_resource_id = azurerm_linux_function_app.func1.id
-    subresource_names              = []
+    subresource_names              = ["sites"]
     is_manual_connection           = false
   }
+}
+
+resource "azurerm_private_endpoint" "func2" {
+  name                = "pe-func-${var.disambiguation}-${random_string.suffix.result}-func2"
+  location            = azurerm_resource_group.vnetapim.location
+  resource_group_name = azurerm_resource_group.vnetapim.name
+  subnet_id           = azurerm_subnet.function2.id
+  private_dns_zone_group {
+    name = azurerm_private_dns_zone.vnetapim.name
+    private_dns_zone_ids = [
+    azurerm_private_dns_zone.vnetapim.id, ]
+  }
+
+  private_service_connection {
+    name                           = "psc-func-${var.disambiguation}-${random_string.suffix.result}-func2"
+    private_connection_resource_id = azurerm_linux_function_app.func2.id
+    subresource_names              = ["sites"]
+    is_manual_connection           = false
+  }
+}
+
+resource "azurerm_linux_function_app" "func3" {
+  builtin_logging_enabled    = false
+  client_certificate_mode    = "Required"
+  location                   = var.location
+  name                       = "func-${var.disambiguation}-${random_string.suffix.result}-func3"
+  resource_group_name        = azurerm_resource_group.vnetapim.name
+  service_plan_id            = azurerm_service_plan.aspfunc1.id
+  storage_account_access_key = azurerm_storage_account.sa.primary_access_key
+  storage_account_name       = azurerm_storage_account.sa.name
+
+
+  identity {
+
+    type = "SystemAssigned"
+  }
+
+  app_settings = {
+    FUNCTIONS_WORKER_RUNTIME = "python"
+    WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
+    function_name = "3"
+  }
+
+  site_config {
+    ftps_state    = "AllAllowed"
+    http2_enabled = true
+    application_stack {
+      python_version = "3.9"
+    }
+  }
+  depends_on = [
+    azurerm_service_plan.aspfunc1,
+  ]
 }
