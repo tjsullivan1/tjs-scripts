@@ -6,6 +6,8 @@ param($Request, $TriggerMetadata)
 # Write to the Azure Functions log stream.
 Write-Host "PowerShell HTTP trigger function processed a request."
 
+### HTTP Parameters ###
+
 # Interact with query parameters or the body of the request.
 $name = $Request.Query.Name
 if (-not $name) {
@@ -21,12 +23,28 @@ $businessUnit = $Request.Query.BusinessUnit
 if (-not $businessUnit) {
     $businessUnit = $Request.Body.BusinessUnit
 }
+### Validate User is real ###
+$domain = "sullivanenterprises.org"
+$upn = "$alias@$domain"
 
-$body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+$filter = "startsWith(UserPrincipalName, '$upn')"
+$user = get-mguser -Filter $filter
 
-if ($name) {
-    $body = "Hello, $name. This HTTP triggered function executed successfully."
+if ($user) {
+    write-debug "User: $user"
+} else {
+    $body =  "User $upn does not exist"
+
+    # Associate values to output bindings by calling 'Push-OutputBinding'.
+    Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
+        StatusCode = [HttpStatusCode]::BadRequest
+        Body = $body
+    })
+
+    throw $body
 }
+
+### Create Azure AD Application Registration ###
 
 # Get seconds since epoch
 $SecondsSinceEpoch = Get-Date -uFormat "%s"
@@ -50,6 +68,14 @@ $updateParams = @{
 }
 
 Update-MgApplication -applicationId $AppReg.Id -BodyParameter $updateParams
+
+### HTTP Response ###
+$body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
+
+if ($name) {
+    $body = "Hello, $name. This HTTP triggered function executed successfully."
+}
+
 
 # Associate values to output bindings by calling 'Push-OutputBinding'.
 Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
