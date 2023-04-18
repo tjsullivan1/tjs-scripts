@@ -32,6 +32,10 @@ $user = get-mguser -Filter $filter
 
 if ($user) {
     write-debug "User: $user"
+    $NewOwenr = @{
+        "@odata.id"= "https://graph.microsoft.com/v1.0/directoryObjects/$($user.id)"
+    }
+
 } else {
     $body =  "User $upn does not exist"
 
@@ -41,7 +45,7 @@ if ($user) {
         Body = $body
     })
 
-    throw $body
+    exit 400
 }
 
 ### Create Azure AD Application Registration ###
@@ -69,11 +73,13 @@ $updateParams = @{
 
 Update-MgApplication -applicationId $AppReg.Id -BodyParameter $updateParams
 
+New-MgApplicationOwnerByRef -ApplicationId $AppReg.Id -BodyParameter $NewOwenr
+
 ### HTTP Response ###
 $body = "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response."
 
-if ($name) {
-    $body = "Hello, $name. This HTTP triggered function executed successfully."
+if ($AppReg) {
+    $body = "Hello, $alias. This HTTP triggered function executed successfully. The application registration $standardName was created for you. It has the id of $($AppReg.Id)."
 }
 
 
