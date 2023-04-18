@@ -28,6 +28,7 @@ Once the function is deployed, you can call the function with Postman. Use a POS
 The name is the name that is given to the app registration. In the sample code, we will use this as the suffix to a naming convention that is 'appreg-seconds_since_epoch-name'. The alias is the alias for the user making the request. In production, you would want this to be the authenticated user's value and not a user-inputted value. Finally, business unit is just an example additional tag.
 
 Once the POST happens, Azure AD will generate a new app registration and both the managed identity & user whose alias was passed will be owners. Informational fields will be added to the tags field in the manifest of the app registration. 
+
 ## License
 
 [MIT](https://choosealicense.com/licenses/mit/)
