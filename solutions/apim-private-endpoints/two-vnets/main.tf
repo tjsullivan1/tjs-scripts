@@ -101,7 +101,7 @@ resource "azurerm_subnet" "vms" {
 
 resource "azurerm_virtual_network" "func1" {
   name                = "vnet-${var.disambiguation}-${random_string.suffix.result}-func1"
-  address_space       = ["10.100.5.0/24"]
+  address_space       = ["10.100.5.0/24", "10.101.5.0/24"]
   location            = azurerm_resource_group.vnetapim.location
   resource_group_name = azurerm_resource_group.func1.name
 }
@@ -113,9 +113,26 @@ resource "azurerm_subnet" "function" {
   address_prefixes     = ["10.100.5.0/24"]
 }
 
+resource "azurerm_subnet" "vms_function1" {
+  name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-vms"
+  resource_group_name  = azurerm_resource_group.func1.name
+  virtual_network_name = azurerm_virtual_network.func1.name
+  address_prefixes     = ["10.101.5.0/24"]
+}
+
+resource "azurerm_subnet_network_security_group_association" "func1-vms" {
+  subnet_id                 = azurerm_subnet.vms_function1.id
+  network_security_group_id = "/subscriptions/f33f4d2a-99ac-47ab-8142-a5f6f768020f/resourceGroups/rg-tjsapi-p86x-main/providers/Microsoft.Network/networkSecurityGroups/nsg-vms"
+}
+
+resource "azurerm_subnet_network_security_group_association" "func2-vms" {
+  subnet_id                 = azurerm_subnet.vms_function2.id
+  network_security_group_id = "/subscriptions/f33f4d2a-99ac-47ab-8142-a5f6f768020f/resourceGroups/rg-tjsapi-p86x-main/providers/Microsoft.Network/networkSecurityGroups/nsg-vms"
+}
+
 resource "azurerm_virtual_network" "func2" {
   name                = "vnet-${var.disambiguation}-${random_string.suffix.result}-func2"
-  address_space       = ["10.100.4.0/24"]
+  address_space       = ["10.100.4.0/24", "10.101.4.0/24"]
   location            = azurerm_resource_group.vnetapim.location
   resource_group_name = azurerm_resource_group.func2.name
 }
@@ -126,6 +143,14 @@ resource "azurerm_subnet" "function2" {
   virtual_network_name = azurerm_virtual_network.func2.name
   address_prefixes     = ["10.100.4.0/24"]
 }
+
+resource "azurerm_subnet" "vms_function2" {
+  name                 = "snet-${var.disambiguation}-${random_string.suffix.result}-vms"
+  resource_group_name  = azurerm_resource_group.func2.name
+  virtual_network_name = azurerm_virtual_network.func2.name
+  address_prefixes     = ["10.101.4.0/24"]
+}
+
 
 resource "azurerm_public_ip" "tester-pip" {
 allocation_method = "Dynamic"
@@ -175,6 +200,25 @@ resource "azurerm_linux_virtual_machine" "tester" {
     version   = "latest"
   }
 }
+
+module "tester-func1" {
+  source = "../modules/tester-vm"
+  
+  name = "func1"
+  resource_group = azurerm_resource_group.func1.name
+  location = azurerm_resource_group.func1.location
+  subnet_id = azurerm_subnet.vms_function1.id
+}
+
+module "tester-func2" {
+  source = "../modules/tester-vm"
+  
+  name = "func2"
+  resource_group = azurerm_resource_group.func2.name
+  location = azurerm_resource_group.func2.location
+  subnet_id = azurerm_subnet.vms_function2.id
+}
+
 
 resource "azurerm_api_management" "apim" {
   name                = "apim-${var.disambiguation}-${random_string.suffix.result}"
@@ -295,6 +339,18 @@ resource "azurerm_private_dns_zone_virtual_network_link" "toapimvnet" {
   virtual_network_id    = azurerm_virtual_network.vnetapim.id
 }
 
+resource "azurerm_private_dns_zone" "function1" {
+  name                = "privatelink.azurewebsites.net"
+  resource_group_name = azurerm_resource_group.func1.name
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "tofunc1vnet" {
+  name                  = "func1"
+  resource_group_name   = azurerm_resource_group.func1.name
+  private_dns_zone_name = azurerm_private_dns_zone.function1.name
+  virtual_network_id    = azurerm_virtual_network.func1.id
+}
+
 
 resource "azurerm_private_endpoint" "func1" {
   name                = "pe-func-${var.disambiguation}-${random_string.suffix.result}-func1"
@@ -304,7 +360,8 @@ resource "azurerm_private_endpoint" "func1" {
   private_dns_zone_group {
     name = azurerm_private_dns_zone.vnetapim.name
     private_dns_zone_ids = [
-    azurerm_private_dns_zone.vnetapim.id, ]
+    azurerm_private_dns_zone.vnetapim.id, 
+    ]
   }
 
   private_service_connection {
@@ -323,7 +380,8 @@ resource "azurerm_private_endpoint" "func2" {
   private_dns_zone_group {
     name = azurerm_private_dns_zone.vnetapim.name
     private_dns_zone_ids = [
-    azurerm_private_dns_zone.vnetapim.id, ]
+    azurerm_private_dns_zone.vnetapim.id,
+    ]
   }
 
   private_service_connection {
