@@ -49,3 +49,12 @@ variable "sku_count" {
     error_message = "The sku_count must be one of the following: 1, 2."
   }
 }
+
+variable "front_door_sku_name" {
+  type    = string
+  default = "Standard_AzureFrontDoor"
+  validation {
+    condition     = contains(["Standard_AzureFrontDoor", "Premium_AzureFrontDoor"], var.front_door_sku_name)
+    error_message = "The SKU value must be Standard_AzureFrontDoor or Premium_AzureFrontDoor."
+  }
+}
