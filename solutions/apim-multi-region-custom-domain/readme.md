@@ -1,4 +1,4 @@
-# Azure APIM Demonstration with Private Endpoints, Two Scenarios
+# Azure APIM Multi-region with Azure Front Door
 
 This is some terraform to demonstrate APIM in a multi-region fashion fronted by Azure Front Door. This is accomplished with mocking services, but you could replace the inbound policy actions to change the backend that the traffic is being directed to as well. In this sample, Azure Front Door uses the regiona gateway endpoint for East US and the additional gateway in Central US. Based on the gateway region, we respond with a custom mocked response to demonstrate we're in a separate region. Front Door will use its own routing mechanisms by default, but by adding a request header 'x-apim-instance' with a region specified, we will send to that specific endpoint by using the front door rules engine. 
 
