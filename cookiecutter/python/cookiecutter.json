@@ -1,0 +1,10 @@
+{
+    "project_name": "Basic Python Project",
+    "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '_') }}","basicpythonproject",
+    "author_name": "Tim Sullivan",
+    "author_email": "timothyj.sullivan1+cookies@gmail.com",
+    "github_username": "tjsullivan1",
+    "project_version": "0.1.0",
+    "project_short_description": "A basic Python project.",
+    "coc_contact_info": "timothyj.sullivan1+cookies@gmail.com"
+}
