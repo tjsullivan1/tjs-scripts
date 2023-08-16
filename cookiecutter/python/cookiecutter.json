@@ -1,6 +1,6 @@
 {
     "project_name": "Basic Python Project",
-    "project_slug": "{{ cookiecutter.project_name.lower().replace(' ', '_') }}","basicpythonproject",
+    "module_name": "{{ cookiecutter.project_name.lower().replace(' ', '_') }}",
     "author_name": "Tim Sullivan",
     "author_email": "timothyj.sullivan1+cookies@gmail.com",
     "github_username": "tjsullivan1",
