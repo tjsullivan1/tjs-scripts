@@ -12,6 +12,22 @@
 
 ## Notes on Deployment
 
+Once this was deployed, I enabled the acr login & network access to allow me to push an image to the registry. Re-running the terraform will lock it back down.
+
+Commands:
+
+```
+az acr login --name <registry>
+
+docker pull nginx
+docker tag nginx <registryname>.azurecr.io/samples/nginx
+docker push <registryname>.azurecr.io/samples/nginx
+
+az aks get-credentials --resource-group <rg> --name <aks>
+
+kubectl apply -f acr-nginx.yaml
+```
+
 ## Tech Stack
 
 ## Authors
