@@ -20,7 +20,7 @@
 # -- Project information -----------------------------------------------------
 
 project = '{{ cookiecutter.project_name }}'
-copyright = '2018, {{ cookiecutter.author_name }}'
+copyright = '2023, {{ cookiecutter.author_name }}'
 author = '{{ cookiecutter.author_name }}'
 
 # The short X.Y version
