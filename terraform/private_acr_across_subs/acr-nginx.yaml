@@ -16,6 +16,6 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: acreuuagxhqeqdci.azurecr.io/samples/nginx:latest
+        image: acrfjwwikvufiixd.azurecr.io/samples/nginx:latest
         ports:
         - containerPort: 80
