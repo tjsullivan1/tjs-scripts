@@ -1,0 +1,744 @@
+hostname_map = {
+0 = {
+hostnames = [
+"customer0.",
+"customer4.",
+"customer8.",
+"customer11.",
+"customer16.",
+"customer21.",
+"customer22.",
+"customer25.",
+"customer28.",
+"customer30.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+1 = {
+hostnames = [
+"customer33.",
+"customer34.",
+"customer35.",
+"customer36.",
+"customer37.",
+"customer38.",
+"customer41.",
+"customer43.",
+"customer45.",
+"customer47.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+2 = {
+hostnames = [
+"customer48.",
+"customer51.",
+"customer52.",
+"customer56.",
+"customer58.",
+"customer59.",
+"customer62.",
+"customer63.",
+"customer66.",
+"customer67.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+3 = {
+hostnames = [
+"customer68.",
+"customer70.",
+"customer76.",
+"customer77.",
+"customer78.",
+"customer82.",
+"customer85.",
+"customer86.",
+"customer90.",
+"customer91.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+4 = {
+hostnames = [
+"customer93.",
+"customer94.",
+"customer95.",
+"customer96.",
+"customer97.",
+"customer98.",
+"customer100.",
+"customer101.",
+"customer105.",
+"customer107.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+5 = {
+hostnames = [
+"customer110.",
+"customer112.",
+"customer113.",
+"customer116.",
+"customer117.",
+"customer118.",
+"customer119.",
+"customer121.",
+"customer123.",
+"customer126.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+6 = {
+hostnames = [
+"customer128.",
+"customer129.",
+"customer130.",
+"customer133.",
+"customer135.",
+"customer137.",
+"customer138.",
+"customer139.",
+"customer141.",
+"customer142.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+7 = {
+hostnames = [
+"customer143.",
+"customer146.",
+"customer147.",
+"customer148.",
+"customer150.",
+"customer152.",
+"customer156.",
+"customer157.",
+"customer158.",
+"customer160.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+8 = {
+hostnames = [
+"customer166.",
+"customer167.",
+"customer170.",
+"customer172.",
+"customer174.",
+"customer177.",
+"customer178.",
+"customer179.",
+"customer186.",
+"customer187.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+9 = {
+hostnames = [
+"customer192.",
+"customer198.",
+"customer199.",
+"customer201.",
+"customer202.",
+"customer204.",
+"customer205.",
+"customer207.",
+"customer212.",
+"customer213.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+10 = {
+hostnames = [
+"customer214.",
+"customer215.",
+"customer216.",
+"customer218.",
+"customer220.",
+"customer221.",
+"customer222.",
+"customer223.",
+"customer224.",
+"customer227.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+11 = {
+hostnames = [
+"customer230.",
+"customer231.",
+"customer233.",
+"customer234.",
+"customer239.",
+"customer241.",
+"customer242.",
+"customer245.",
+"customer248.",
+"customer249.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+12 = {
+hostnames = [
+"customer251.",
+"customer252.",
+"customer253.",
+"customer256.",
+"customer257.",
+"customer258.",
+"customer259.",
+"customer262.",
+"customer263.",
+"customer264.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+13 = {
+hostnames = [
+"customer265.",
+"customer266.",
+"customer268.",
+"customer269.",
+"customer270.",
+"customer271.",
+"customer273.",
+"customer276.",
+"customer278.",
+"customer280.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+14 = {
+hostnames = [
+"customer282.",
+"customer283.",
+"customer290.",
+"customer292.",
+"customer294.",
+"customer296.",
+"customer300.",
+"customer301.",
+"customer302.",
+"customer303.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+15 = {
+hostnames = [
+"customer306.",
+"customer307.",
+"customer309.",
+"customer311.",
+"customer314.",
+"customer316.",
+"customer317.",
+"customer321.",
+"customer322.",
+"customer323.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+16 = {
+hostnames = [
+"customer324.",
+"customer326.",
+"customer327.",
+"customer329.",
+"customer332.",
+"customer336.",
+"customer339.",
+"customer341.",
+"customer344.",
+"customer349.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+17 = {
+hostnames = [
+"customer351.",
+"customer352.",
+"customer357.",
+"customer358.",
+"customer359.",
+"customer365.",
+"customer366.",
+"customer369.",
+"customer370.",
+"customer372.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+18 = {
+hostnames = [
+"customer373.",
+"customer375.",
+"customer377.",
+"customer381.",
+"customer387.",
+"customer390.",
+"customer391.",
+"customer392.",
+"customer396.",
+"customer397.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+19 = {
+hostnames = [
+"customer398.",
+"customer399.",
+"customer400.",
+"customer401.",
+"customer402.",
+"customer403.",
+"customer404.",
+"customer406.",
+"customer407.",
+"customer408.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+20 = {
+hostnames = [
+"customer410.",
+"customer414.",
+"customer415.",
+"customer416.",
+"customer417.",
+"customer419.",
+"customer421.",
+"customer423.",
+"customer427.",
+"customer428.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+21 = {
+hostnames = [
+"customer429.",
+"customer431.",
+"customer436.",
+"customer438.",
+"customer439.",
+"customer446.",
+"customer447.",
+"customer448.",
+"customer449.",
+"customer450.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+22 = {
+hostnames = [
+"customer454.",
+"customer455.",
+"customer456.",
+"customer458.",
+"customer460.",
+"customer462.",
+"customer465.",
+"customer466.",
+"customer472.",
+"customer475.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+23 = {
+hostnames = [
+"customer476.",
+"customer481.",
+"customer482.",
+"customer483.",
+"customer484.",
+"customer486.",
+"customer487.",
+"customer489.",
+"customer490.",
+"customer491.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+24 = {
+hostnames = [
+"customer492.",
+"customer495.",
+"customer497.",
+"customer498.",
+"customer503.",
+"customer507.",
+"customer509.",
+"customer510.",
+"customer511.",
+"customer513.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+25 = {
+hostnames = [
+"customer514.",
+"customer516.",
+"customer517.",
+"customer519.",
+"customer520.",
+"customer521.",
+"customer522.",
+"customer523.",
+"customer524.",
+"customer525.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+26 = {
+hostnames = [
+"customer526.",
+"customer527.",
+"customer529.",
+"customer530.",
+"customer532.",
+"customer533.",
+"customer537.",
+"customer538.",
+"customer542.",
+"customer546.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+27 = {
+hostnames = [
+"customer551.",
+"customer552.",
+"customer555.",
+"customer567.",
+"customer568.",
+"customer571.",
+"customer572.",
+"customer574.",
+"customer576.",
+"customer578.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+28 = {
+hostnames = [
+"customer580.",
+"customer581.",
+"customer583.",
+"customer584.",
+"customer585.",
+"customer586.",
+"customer587.",
+"customer590.",
+"customer591.",
+"customer592.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+29 = {
+hostnames = [
+"customer593.",
+"customer594.",
+"customer595.",
+"customer596.",
+"customer597.",
+"customer599.",
+"customer600.",
+"customer603.",
+"customer606.",
+"customer611.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+30 = {
+hostnames = [
+"customer613.",
+"customer615.",
+"customer617.",
+"customer619.",
+"customer620.",
+"customer621.",
+"customer622.",
+"customer624.",
+"customer625.",
+"customer630.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+31 = {
+hostnames = [
+"customer631.",
+"customer632.",
+"customer634.",
+"customer638.",
+"customer639.",
+"customer641.",
+"customer642.",
+"customer647.",
+"customer648.",
+"customer650.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+32 = {
+hostnames = [
+"customer652.",
+"customer654.",
+"customer655.",
+"customer656.",
+"customer659.",
+"customer661.",
+"customer663.",
+"customer669.",
+"customer670.",
+"customer672.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+33 = {
+hostnames = [
+"customer674.",
+"customer676.",
+"customer677.",
+"customer681.",
+"customer683.",
+"customer685.",
+"customer687.",
+"customer689.",
+"customer691.",
+"customer692.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+34 = {
+hostnames = [
+"customer693.",
+"customer694.",
+"customer696.",
+"customer701.",
+"customer702.",
+"customer704.",
+"customer705.",
+"customer706.",
+"customer708.",
+"customer710.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+35 = {
+hostnames = [
+"customer713.",
+"customer714.",
+"customer715.",
+"customer718.",
+"customer719.",
+"customer721.",
+"customer723.",
+"customer725.",
+"customer738.",
+"customer742.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+36 = {
+hostnames = [
+"customer744.",
+"customer747.",
+"customer748.",
+"customer749.",
+"customer751.",
+"customer752.",
+"customer753.",
+"customer755.",
+"customer756.",
+"customer757.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+37 = {
+hostnames = [
+"customer758.",
+"customer759.",
+"customer762.",
+"customer769.",
+"customer772.",
+"customer773.",
+"customer775.",
+"customer777.",
+"customer781.",
+"customer782.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+38 = {
+hostnames = [
+"customer784.",
+"customer788.",
+"customer789.",
+"customer791.",
+"customer792.",
+"customer795.",
+"customer796.",
+"customer797.",
+"customer800.",
+"customer801.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+39 = {
+hostnames = [
+"customer803.",
+"customer804.",
+"customer805.",
+"customer806.",
+"customer807.",
+"customer808.",
+"customer811.",
+"customer812.",
+"customer813.",
+"customer816.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+40 = {
+hostnames = [
+"customer817.",
+"customer821.",
+"customer823.",
+"customer824.",
+"customer825.",
+"customer827.",
+"customer828.",
+"customer830.",
+"customer831.",
+"customer832.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+41 = {
+hostnames = [
+"customer833.",
+"customer836.",
+"customer838.",
+"customer839.",
+"customer841.",
+"customer842.",
+"customer844.",
+"customer846.",
+"customer847.",
+"customer848.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+42 = {
+hostnames = [
+"customer850.",
+"customer852.",
+"customer853.",
+"customer854.",
+"customer859.",
+"customer862.",
+"customer863.",
+"customer864.",
+"customer866.",
+"customer867.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+43 = {
+hostnames = [
+"customer868.",
+"customer869.",
+"customer874.",
+"customer875.",
+"customer876.",
+"customer880.",
+"customer881.",
+"customer884.",
+"customer885.",
+"customer886.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+44 = {
+hostnames = [
+"customer890.",
+"customer893.",
+"customer897.",
+"customer898.",
+"customer899.",
+"customer900.",
+"customer905.",
+"customer907.",
+"customer911.",
+"customer912.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+45 = {
+hostnames = [
+"customer913.",
+"customer915.",
+"customer916.",
+"customer917.",
+"customer918.",
+"customer922.",
+"customer923.",
+"customer924.",
+"customer925.",
+"customer927.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+46 = {
+hostnames = [
+"customer935.",
+"customer936.",
+"customer939.",
+"customer945.",
+"customer946.",
+"customer947.",
+"customer949.",
+"customer955.",
+"customer958.",
+"customer959.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+47 = {
+hostnames = [
+"customer961.",
+"customer962.",
+"customer963.",
+"customer965.",
+"customer970.",
+"customer972.",
+"customer973.",
+"customer975.",
+"customer977.",
+"customer978.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+48 = {
+hostnames = [
+"customer979.",
+"customer980.",
+"customer982.",
+"customer983.",
+"customer984.",
+"customer986.",
+"customer988.",
+"customer991.",
+"customer992.",
+"customer993.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+49 = {
+hostnames = [
+"customer998.",
+"customer999.",
+],
+origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+},
+}
