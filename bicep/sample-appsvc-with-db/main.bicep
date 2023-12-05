@@ -1,6 +1,6 @@
 param location string = resourceGroup().location
 param sqlAdminLogin string = 'tjsadmin'
-param sqlPassword string =  'Test12341234!!'
+param sqlPassword string 
 
 
 module appModule './modules/app_svc.bicep' = {
