@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def build_url(subId, location):
-    return f"https://management.azure.com/subscriptions/{subId}/providers/Microsoft.CognitiveServices/locations/{location}/usages?api-version=2023-05-01"
+def build_url(subscription_id, location):
+    return f"https://management.azure.com/subscriptions/{subscription_id}/providers/Microsoft.CognitiveServices/locations/{location}/usages?api-version=2023-05-01"
 
 def build_headers(access_token):
     return {
@@ -39,18 +39,18 @@ def get_remaining_capacity(model_match):
 
 def main(
     model_name: Annotated[str, typer.Option(help="Model Name.")],
-    subId: Annotated[str, typer.Option(help="Azure Subscription ID.")] = "",
+    subscription_id: Annotated[str, typer.Option(help="Azure Subscription ID.")] = "",
     location: Annotated[str, typer.Option(help="Azure Region.")] = "",
     access_token: Annotated[str, typer.Option(help="Azure Access Token.")] = "",
 ):
-    if not subId:
-        subId = os.getenv("SUBSCRIPTION_ID", "")
+    if not subscription_id:
+        subscription_id = os.getenv("SUBSCRIPTION_ID", "")
     if not location:
         location = os.getenv("LOCATION", "")
     if not access_token:
         access_token = os.getenv("ACCESS_TOKEN", "")
 
-    url=build_url(subId, location)
+    url=build_url(subscription_id, location)
 
     headersAPI = build_headers(access_token)
 
