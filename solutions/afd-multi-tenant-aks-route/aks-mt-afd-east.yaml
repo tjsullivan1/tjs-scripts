@@ -185,3 +185,13 @@ spec:
             name: aks-helloworld-four
             port:
               number: 80
+  - host: 'customer14.sullivantim.com'
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: aks-helloworld-four
+            port:
+              number: 80
