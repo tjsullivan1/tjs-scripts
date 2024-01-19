@@ -21,6 +21,7 @@ jobs:
       - name: PsRemoting
         shell: pwsh
         run: |
+          Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
           $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
           $mycreds = New-Object System.Management.Automation.PSCredential ("tjs", $secpasswd)
           $session = New-PSSession -ComputerName ${{ secrets.VM_NAME }} -Credential $mycreds
