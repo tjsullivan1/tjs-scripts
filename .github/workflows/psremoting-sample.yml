@@ -21,12 +21,12 @@ jobs:
       - uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION }}
       - name: Invoke Az VM Run Command
         uses: azure/CLI@v1
         with:
           azcliversion: 2.0.72
           inlineScript: |
+            az account set -s ${{ secrets.AZURE_SUBSCRIPTION }}
             az vm run-command invoke -g nginx1_group -n iis --command-id RunPowerShellScript --scripts "Get-Process"
       # This cmdlet series fails on my local machine too. Need to dig into winrm
       # - name: PsRemoting
