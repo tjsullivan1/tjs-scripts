@@ -10,7 +10,7 @@ def get_page_html(url):
 
     html.raise_for_status
 
-    return BeautifulSoup(html.content, "html.parser")
+    return BeautifulSoup(html.content, "html.parser")ls
 
 
 def get_links(soup):
