@@ -22,6 +22,7 @@ jobs:
         shell: pwsh
         run: |
           # Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
+          winrm set winrm/config/client '@{TrustedHosts="*"}'
           $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
           $mycreds = New-Object System.Management.Automation.PSCredential ("tjs", $secpasswd)
           $session = New-PSSession -ComputerName tjsiis1.eastus.cloudapp.azure.com -Credential $mycreds
