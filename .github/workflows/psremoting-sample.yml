@@ -22,7 +22,7 @@ jobs:
         shell: pwsh
         run: |
           $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
-          $mycreds = New-Object System.Management.Automation.PSCredential (${{ secrets.VM_USERNAME}}, $secpasswd)
+          $mycreds = New-Object System.Management.Automation.PSCredential ("tjs", $secpasswd)
           $session = New-PSSession -ComputerName ${{ secrets.VM_NAME }} -Credential $mycreds
           Invoke-Command -Session $session -ScriptBlock { Get-Process }
           Remove-PSSession -Session $session
