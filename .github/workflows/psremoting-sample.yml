@@ -18,14 +18,24 @@ jobs:
       - name: List files in the repository
         run: |
           ls ${{ github.workspace }}
-      - name: PsRemoting
-        shell: pwsh
-        run: |
-          # Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
-          winrm set winrm/config/client '@{TrustedHosts="*"}'
-          $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
-          $mycreds = New-Object System.Management.Automation.PSCredential ("tjs", $secpasswd)
-          $session = New-PSSession -ComputerName tjsiis1.eastus.cloudapp.azure.com -Credential $mycreds
-          Invoke-Command -Session $session -ScriptBlock { Get-Process }
-          Remove-PSSession -Session $session
+      - uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Invoke Az VM Run Command
+        uses: azure/CLI@v1
+        with:
+          azcliversion: 2.0.72
+          inlineScript: |
+            az vm run-command invoke -g nginx1_group -n iis --command-id RunPowerShellScript --scripts "Get-Process"
+      # This cmdlet series fails on my local machine too. Need to dig into winrm
+      # - name: PsRemoting
+      #   shell: pwsh
+      #   run: |
+      #     # Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
+      #     winrm set winrm/config/client '@{TrustedHosts="*"}'
+      #     $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
+      #     $mycreds = New-Object System.Management.Automation.PSCredential ("tjs", $secpasswd)
+      #     $session = New-PSSession -ComputerName tjsiis1.eastus.cloudapp.azure.com -Credential $mycreds
+      #     Invoke-Command -Session $session -ScriptBlock { Get-Process }
+      #     Remove-PSSession -Session $session
       - run: echo "🍏 This job's status is ${{ job.status }}."
