@@ -21,10 +21,10 @@ jobs:
       - name: PsRemoting
         shell: pwsh
         run: |
-          Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
+          # Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
           $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
           $mycreds = New-Object System.Management.Automation.PSCredential ("tjs", $secpasswd)
-          $session = New-PSSession -ComputerName ${{ secrets.VM_NAME }} -Credential $mycreds
+          $session = New-PSSession -ComputerName tjsiis1.eastus.cloudapp.azure.com -Credential $mycreds
           Invoke-Command -Session $session -ScriptBlock { Get-Process }
           Remove-PSSession -Session $session
       - run: echo "🍏 This job's status is ${{ job.status }}."
