@@ -21,6 +21,7 @@ jobs:
       - uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION }}
       - name: Invoke Az VM Run Command
         uses: azure/CLI@v1
         with:
