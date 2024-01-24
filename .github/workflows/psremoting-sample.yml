@@ -34,10 +34,12 @@ jobs:
         shell: pwsh
         run: |
           # Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
+          $fqdn = 'cw-sql-test.sullivanenterprises.org'
+          nslookup $fqdn
           winrm set winrm/config/client '@{TrustedHosts="*"}'
           $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
           $mycreds = New-Object System.Management.Automation.PSCredential ("vmadmin001", $secpasswd)
-          $session = New-PSSession -ComputerName cw-sql-test.sullivanenterprises.org -Credential $mycreds
+          $session = New-PSSession -ComputerName $fqdn -Credential $mycreds
           Invoke-Command -Session $session -ScriptBlock { Get-Process }
           Remove-PSSession -Session $session
       - run: echo "🍏 This job's status is ${{ job.status }}."
