@@ -39,7 +39,7 @@ jobs:
           winrm set winrm/config/client '@{TrustedHosts="*"}'
           $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
           $mycreds = New-Object System.Management.Automation.PSCredential ("vmadmin001", $secpasswd)
-          $session = New-PSSession -ComputerName $fqdn -Credential $mycreds
+          $session = New-PSSession -ComputerName $fqdn -Credential $mycreds -UseSSL -Port 5986
           Invoke-Command -Session $session -ScriptBlock { Get-Process }
           Remove-PSSession -Session $session
       - run: echo "🍏 This job's status is ${{ job.status }}."
