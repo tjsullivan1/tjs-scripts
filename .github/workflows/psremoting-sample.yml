@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 jobs:
   Explore-GitHub-Actions:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
       - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
@@ -18,26 +18,30 @@ jobs:
       - name: List files in the repository
         run: |
           ls ${{ github.workspace }}
-      - uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Invoke Az VM Run Command
-        uses: azure/CLI@v1
-        with:
-          azcliversion: 2.56.0
-          inlineScript: |
-            az account set -s ${{ secrets.AZURE_SUBSCRIPTION }}
-            az account show
-            az vm run-command invoke -g nginx1_group -n iis --command-id RunPowerShellScript --scripts "Get-Process"
+      # - uses: azure/login@v1
+      #   with:
+      #     creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # - name: Invoke Az VM Run Command
+      #   uses: azure/CLI@v1
+      #   with:
+      #     azcliversion: 2.56.0
+      #     inlineScript: |
+      #       az account set -s ${{ secrets.AZURE_SUBSCRIPTION }}
+      #       az account show
+      #       az vm run-command invoke -g nginx1_group -n iis --command-id RunPowerShellScript --scripts "Get-Process"
       # This cmdlet series fails on my local machine too. Need to dig into winrm
-      # - name: PsRemoting
-      #   shell: pwsh
-      #   run: |
-      #     # Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
-      #     winrm set winrm/config/client '@{TrustedHosts="*"}'
-      #     $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
-      #     $mycreds = New-Object System.Management.Automation.PSCredential ("tjs", $secpasswd)
-      #     $session = New-PSSession -ComputerName tjsiis1.eastus.cloudapp.azure.com -Credential $mycreds
-      #     Invoke-Command -Session $session -ScriptBlock { Get-Process }
-      #     Remove-PSSession -Session $session
+      - name: PsRemoting
+        shell: pwsh
+        run: |
+          # Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*'
+          $fqdn = 'cw-sql-test.sullivanenterprises.org'
+          nslookup $fqdn
+          winrm set winrm/config/client '@{TrustedHosts="*"}'
+          $secpasswd = ConvertTo-SecureString ${{ secrets.VM_PASSWORD }} -AsPlainText -Force
+          $mycreds = New-Object System.Management.Automation.PSCredential ("vmadmin001", $secpasswd)
+          $session = New-PSSession -ComputerName $fqdn -Credential $mycreds -UseSSL -Port 5986
+          Invoke-Command -Session $session -ScriptBlock { Get-Process }
+          Invoke-Command -Session $session -ScriptBlock { invoke-sqlcmd -query "SELECT TOP (1000) [optname],[value],[major_version],[minor_version],[revision],[install_failures] FROM [master].[dbo].[MSreplication_options]" -ServerInstance 'SQLVM001' }
+          Remove-PSSession -Session $session
+          
       - run: echo "🍏 This job's status is ${{ job.status }}."
