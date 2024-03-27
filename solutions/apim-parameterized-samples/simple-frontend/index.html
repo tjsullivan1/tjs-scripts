@@ -1,0 +1,103 @@
+<html>
+<head>
+    <title>Simple Frontend</title>
+
+    <link rel="stylesheet" href="https://the.missing.style/v0.2.0/missing.min.css">
+    <script src="https://app-booker.orangecoast-ad210939.eastus.azurecontainerapps.io/static/js/htmx.min.js"></script>
+    <script src="https://app-booker.orangecoast-ad210939.eastus.azurecontainerapps.io/static/js/_hyperscript-0.9.7.js"></script>
+    <script src="https://app-booker.orangecoast-ad210939.eastus.azurecontainerapps.io/static/js/rsjs-menu.js" type="module"> </script>
+    <script src="https://unpkg.com/alpinejs@3.13.7/dist/cdn.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.11/dist/ext/json-enc.js"></script>
+</head>
+<body>
+    <h1>Simple Frontend</h1>
+    <p>This is a simple frontend.</p>
+
+    <h2>Direct post to backend</h2>
+    <div>
+        <form action="http://localhost:7071/api/HttpExample" method="post">
+            <fieldset>
+                <legend>Sample Values</legend>
+                <div class="table rows">
+                    <p>
+                        <label for="cid">Customer ID:</label><br>
+                        <input type="text" id="cid" name="cid"><br>
+                    </p>
+                    <p>
+                        <label for="date_range">Date Added:</label><br>
+                        <input type="date" id="date_range" name="date_range"><br>
+                    </p>
+                </div>
+                <button>Save</button>
+            </fieldset>
+        </form>
+    </div>  
+
+    <h2>Direct post to backend as JSON</h2>
+    <div>
+        <form
+            hx-target="#response" 
+            hx-post="http://localhost:7071/api/HttpExample"
+            hx-header="Custom-Header: Direct with JSON"
+            hx-ext="json-enc"
+        >
+            <fieldset>
+                <legend>Sample Values</legend>
+                <div class="table rows">
+                    <p>
+                        <label for="cid">Customer ID:</label><br>
+                        <input type="text" id="cid" name="cid"><br>
+                    </p>
+                    <p>
+                        <label for="date_range">Date Added:</label><br>
+                        <input type="date" id="date_range" name="date_range"><br>
+                    </p>
+                </div>
+                <button>Save</button>
+            </fieldset>
+        </form>
+    </div>  
+
+    <div id="response"></div>
+
+    <h2>Post through APIM</h2>
+    <div>
+        <form action="http://localhost:7071/api/HttpExample" method="post">
+            <fieldset>
+                <legend>Sample Values</legend>
+                <div class="table rows">
+                    <p>
+                        <label for="cid">Customer ID:</label><br>
+                        <input type="text" id="cid" name="cid"><br>
+                    </p>
+                    <p>
+                        <label for="date_range">Date Added:</label><br>
+                        <input type="date" id="date_range" name="date_range"><br>
+                    </p>
+                </div>
+                <button>Save</button>
+            </fieldset>
+        </form>
+    </div>  
+
+    <h2>Post to service layer...</h2>
+    <div>
+        <form action="http://localhost:7071/api/HttpExample" method="post">
+            <fieldset>
+                <legend>Sample Values</legend>
+                <div class="table rows">
+                    <p>
+                        <label for="cid">Customer ID:</label><br>
+                        <input type="text" id="cid" name="cid"><br>
+                    </p>
+                    <p>
+                        <label for="date_range">Date Added:</label><br>
+                        <input type="date" id="date_range" name="date_range"><br>
+                    </p>
+                </div>
+                <button>Save</button>
+            </fieldset>
+        </form>
+    </div>  
+</body>
+</html>
