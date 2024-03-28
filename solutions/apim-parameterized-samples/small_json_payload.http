@@ -1,0 +1,19 @@
+POST {{url}}
+Content-Type: application/json
+
+{
+    "cid": "123",
+    "date_range": 30
+}
+
+###
+
+POST {{url}}
+Content-Type: application/json
+ocp-apim-subscription-key: {{$processEnv APIM_API_KEY}}
+Service: MySample
+
+{
+    "cid": "55",
+    "date_range": 30
+}

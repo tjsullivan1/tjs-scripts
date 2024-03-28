@@ -1,0 +1,44 @@
+POST {{url}}
+Content-Type: application/json
+
+{
+    "query": "SELECT * FROM c WHERE c.id = @id and c.daterange.startdate = @startdate and c.daterange.enddate = @enddate",
+    "parameters": [
+        {
+            "name": "@id",
+            "value": "1"
+        },
+        {
+            "name": "@startdate",
+            "value": "2020-01-01"
+        },
+        {
+            "name": "@enddate",
+            "value": "2020-01-31"
+        }
+    ]
+}
+
+
+####
+POST {{url}}
+Content-Type: application/json
+ocp-apim-subscription-key: {{$processEnv APIM_API_KEY}}
+
+{
+    "query": "SELECT * FROM c WHERE c.id = @id and c.daterange.startdate = @startdate and c.daterange.enddate = @enddate",
+    "parameters": [
+        {
+            "name": "@id",
+            "value": "1"
+        },
+        {
+            "name": "@startdate",
+            "value": "2020-01-01"
+        },
+        {
+            "name": "@enddate",
+            "value": "2020-01-31"
+        }
+    ]
+}
