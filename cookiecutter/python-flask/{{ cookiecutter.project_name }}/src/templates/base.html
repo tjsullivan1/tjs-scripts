@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% block head %}
+    <title>{% block title %}{% endblock %} - My Webpage</title>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    {% endblock %}
+</head>
+<body>
+    {% block header %}
+    <header>
+        <h1>
+            <all-caps>{{ cookiecutter.project_name }}.app</all-caps>
+            <sub-title>{{ cookiecutter.project_short_description }}</sub-title>
+        </h1>
+    </header>
+    {% endblock %}
+    <div id="content">{% block content %}{% endblock %}</div>
+    <div id="footer">
+        {% block footer %}
+        &copy; Copyright 2023 by <a href="https://linkedin.com/in/tjsullivan1/">you</a>.
+        {% endblock %}
+    </div>
+</body>
+</html>
