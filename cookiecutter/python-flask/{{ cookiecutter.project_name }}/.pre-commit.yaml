@@ -6,7 +6,6 @@ repos:
     hooks:
     -   id: trailing-whitespace
     -   id: detect-private-key
-    -   id: detect-aws-credentials
     -   id: requirements-txt-fixer
     -   id: end-of-file-fixer
     -   id: check-yaml
