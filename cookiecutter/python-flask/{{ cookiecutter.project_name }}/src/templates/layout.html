@@ -3,7 +3,7 @@
 {% block head %}
     <!-- {{ super() }} -->
     <link rel="stylesheet" href="https://the.missing.style/v0.2.0/missing.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
+    <!-- <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}"> -->
     <script defer src="https://unpkg.com/alpinejs@3/dist/cdn.min.js"></script>
 {% endblock %}
 <body>
@@ -12,7 +12,7 @@
      <!-- {{ super() }} -->
     {% endblock %}
     {% for message in get_flashed_messages() %}
-      <div class="flash">{{ message }}</div>
+      <!-- <div class="flash">{{ message }}</div> -->
     {% endfor %}
     {% block content %}{% endblock %}
 </main>
