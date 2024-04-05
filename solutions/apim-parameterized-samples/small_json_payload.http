@@ -17,3 +17,38 @@ Service: MySample
     "cid": "55",
     "date_range": 30
 }
+
+
+###
+POST https://tjs-apim1.azure-api.net/sample/HttpExample
+ocp-apim-subscription-key: {{$processEnv APIM_API_KEY}}
+Content-Type: application/json
+Fail-Request: True
+
+{
+    "cid": "55",
+    "date_range": 30
+}
+
+
+###
+POST https://app-sample-fallback.azurewebsites.net/api/httpexample
+ocp-apim-subscription-key: {{$processEnv APIM_API_KEY}}
+Content-Type: application/json
+Fail-Request: true
+
+{
+    "cid": "55",
+    "date_range": 30
+}
+
+###
+POST https://app-sample-api.azurewebsites.net/api/httpexample
+ocp-apim-subscription-key: {{$processEnv APIM_API_KEY}}
+Content-Type: application/json
+Fail-Request: true
+
+{
+    "cid": "55",
+    "date_range": 30
+}

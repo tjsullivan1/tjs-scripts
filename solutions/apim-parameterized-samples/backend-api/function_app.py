@@ -17,6 +17,9 @@ def HttpExample(req: func.HttpRequest) -> func.HttpResponse:
     logging.info(f"Request params: {req.params}")
     logging.info(f"Request route_params: {req.route_params}")
 
+    # if req.headers.get('Fail-Request', False):
+    #     return func.HttpResponse("This is a failed request", status_code=429)
+
     if not body:
         logging.info("Request body is empty. Trying to parse it from the request.")
         try:
@@ -26,7 +29,7 @@ def HttpExample(req: func.HttpRequest) -> func.HttpResponse:
             pass
 
     if body:
-        return func.HttpResponse(f"This is the body that was passed to the function: \n{body}", status_code=200)
+        return func.HttpResponse(f"This function is the FALLBACK function. This is the body that was passed to the function: \n{body}", status_code=200)
     else:
         return func.HttpResponse(
              "This HTTP triggered function executed successfully. Pass a body to see the proper response.",

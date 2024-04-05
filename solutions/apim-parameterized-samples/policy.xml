@@ -1,0 +1,15 @@
+    <inbound>
+        <set-variable name="body" value="@(context.Request.Body.As<string>(preserveContent: true))" />
+        <base />
+    </inbound>
+    <backend>
+        <retry condition="@(context.Response.StatusCode == 429)" count="1" interval="0">
+            <choose>
+                <when condition="@(context.Response != null && (context.Response.StatusCode == 429))">
+                    <set-backend-service base-url="https://app-sample-fallback.azurewebsites.net/api" />
+                </when>
+            </choose>
+            <set-body>@((string)context.Variables["body"])</set-body>
+            <forward-request />
+        </retry>
+    </backend>
