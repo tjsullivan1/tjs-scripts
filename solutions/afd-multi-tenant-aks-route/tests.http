@@ -1,0 +1,17 @@
+GET http://east-ingress.sullivantim.com
+
+###
+GET http://customer1.sullivantim.com
+
+###
+GET http://customer2.sullivantim.com
+
+###
+GET http://customer3.sullivantim.com
+
+###
+GET http://customer14.sullivantim.com
+
+
+###
+GET https://customer1.mike-demo.com
