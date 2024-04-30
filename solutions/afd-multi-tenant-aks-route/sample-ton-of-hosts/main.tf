@@ -9,9 +9,6 @@ data "azurerm_cdn_frontdoor_profile" "res-5" {
 resource "azurerm_cdn_frontdoor_endpoint" "res-6" {
   cdn_frontdoor_profile_id = data.azurerm_cdn_frontdoor_profile.res-5.id
   name                     = "labeastusafd"
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
 }
 
 module "ruleset2" {
@@ -1532,7 +1529,7 @@ module "ruleset1" {
 }
 
 data "azurerm_cdn_frontdoor_custom_domain" "wildcard" {
-  name                = "wildcard"
+  name                = ""
   profile_name        = "afd-rg-flying-yeti-1"
   resource_group_name = data.azurerm_resource_group.res-0.name
 
