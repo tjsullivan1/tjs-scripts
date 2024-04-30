@@ -1545,7 +1545,7 @@ resource "azurerm_cdn_frontdoor_route" "res-7" {
   cdn_frontdoor_rule_set_ids      = [module.ruleset1.ruleset_id, module.ruleset2.ruleset_id]
   forwarding_protocol             = "HttpOnly"
   https_redirect_enabled          = false
-  name                            = "default-route-2"
+  name                            = "default-route"
   patterns_to_match               = ["/*"]
   supported_protocols             = ["Http", "Https"]
   depends_on = [
