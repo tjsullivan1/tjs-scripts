@@ -2,6 +2,7 @@ import azure.functions as func
 import datetime
 import json
 import logging
+import os
 
 app = func.FunctionApp()
 
@@ -35,3 +36,13 @@ def HttpExample(req: func.HttpRequest) -> func.HttpResponse:
              "This HTTP triggered function executed successfully. Pass a body to see the proper response.",
              status_code=200
         )
+    
+
+@app.route(route="GraphExample", methods=("GET","POST"), auth_level=func.AuthLevel.ANONYMOUS)
+def GraphExample(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info('Python HTTP trigger function processed a request.')
+
+    with open ("./sample.json", "r") as f:
+        data = json.load(f)
+
+    return func.HttpResponse(json.dumps(data), status_code=200)
