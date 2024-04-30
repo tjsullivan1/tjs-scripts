@@ -1,18 +1,13 @@
-resource "azurerm_resource_group" "res-0" {
-  location = "eastus"
-  name     = "lab-eastus-rg"
+data "azurerm_resource_group" "res-0" {
+  name = "rg-flying-yeti-1"
 }
-resource "azurerm_cdn_frontdoor_profile" "res-5" {
-  name                     = "lab-eastus-afd1"
-  resource_group_name      = "lab-eastus-rg"
-  response_timeout_seconds = 60
-  sku_name                 = "Premium_AzureFrontDoor"
-  depends_on = [
-    azurerm_resource_group.res-0,
-  ]
+
+data "azurerm_cdn_frontdoor_profile" "res-5" {
+  name                     = "afd-rg-flying-yeti-1"
+  resource_group_name      = data.azurerm_resource_group.res-0.name
 }
 resource "azurerm_cdn_frontdoor_endpoint" "res-6" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
+  cdn_frontdoor_profile_id = data.azurerm_cdn_frontdoor_profile.res-5.id
   name                     = "labeastusafd"
   depends_on = [
     azurerm_cdn_frontdoor_profile.res-5,
@@ -23,7 +18,7 @@ module "ruleset2" {
   source = "./modules/ruleset"
 
   ruleset_name = "ruleset2"
-  frontdoor_id = azurerm_cdn_frontdoor_profile.res-5.id
+  frontdoor_id = data.azurerm_cdn_frontdoor_profile.res-5.id
 
   hostname_map = {
     0 = {
@@ -39,7 +34,7 @@ module "ruleset2" {
         "customer12.",
         "customer13.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     1 = {
       hostnames = [
@@ -54,7 +49,7 @@ module "ruleset2" {
         "customer26.",
         "customer27.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     2 = {
       hostnames = [
@@ -69,7 +64,7 @@ module "ruleset2" {
         "customer49.",
         "customer50.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     3 = {
       hostnames = [
@@ -84,7 +79,7 @@ module "ruleset2" {
         "customer69.",
         "customer71.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     4 = {
       hostnames = [
@@ -99,7 +94,7 @@ module "ruleset2" {
         "customer84.",
         "customer87.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     5 = {
       hostnames = [
@@ -114,7 +109,7 @@ module "ruleset2" {
         "customer108.",
         "customer109.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     6 = {
       hostnames = [
@@ -129,7 +124,7 @@ module "ruleset2" {
         "customer131.",
         "customer132.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     7 = {
       hostnames = [
@@ -144,7 +139,7 @@ module "ruleset2" {
         "customer154.",
         "customer155.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     8 = {
       hostnames = [
@@ -159,7 +154,7 @@ module "ruleset2" {
         "customer171.",
         "customer173.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     9 = {
       hostnames = [
@@ -174,7 +169,7 @@ module "ruleset2" {
         "customer188.",
         "customer189.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     10 = {
       hostnames = [
@@ -189,7 +184,7 @@ module "ruleset2" {
         "customer203.",
         "customer206.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     11 = {
       hostnames = [
@@ -204,7 +199,7 @@ module "ruleset2" {
         "customer228.",
         "customer229.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     12 = {
       hostnames = [
@@ -219,7 +214,7 @@ module "ruleset2" {
         "customer246.",
         "customer247.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     13 = {
       hostnames = [
@@ -234,7 +229,7 @@ module "ruleset2" {
         "customer275.",
         "customer277.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     14 = {
       hostnames = [
@@ -249,7 +244,7 @@ module "ruleset2" {
         "customer291.",
         "customer293.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     15 = {
       hostnames = [
@@ -264,7 +259,7 @@ module "ruleset2" {
         "customer312.",
         "customer313.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     16 = {
       hostnames = [
@@ -279,7 +274,7 @@ module "ruleset2" {
         "customer333.",
         "customer334.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     17 = {
       hostnames = [
@@ -294,7 +289,7 @@ module "ruleset2" {
         "customer347.",
         "customer348.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     18 = {
       hostnames = [
@@ -309,7 +304,7 @@ module "ruleset2" {
         "customer363.",
         "customer364.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     19 = {
       hostnames = [
@@ -324,7 +319,7 @@ module "ruleset2" {
         "customer382.",
         "customer383.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     20 = {
       hostnames = [
@@ -339,7 +334,7 @@ module "ruleset2" {
         "customer405.",
         "customer409.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     21 = {
       hostnames = [
@@ -354,7 +349,7 @@ module "ruleset2" {
         "customer426.",
         "customer430.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     22 = {
       hostnames = [
@@ -369,7 +364,7 @@ module "ruleset2" {
         "customer443.",
         "customer444.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     23 = {
       hostnames = [
@@ -384,7 +379,7 @@ module "ruleset2" {
         "customer464.",
         "customer467.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     24 = {
       hostnames = [
@@ -399,7 +394,7 @@ module "ruleset2" {
         "customer479.",
         "customer480.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     25 = {
       hostnames = [
@@ -414,7 +409,7 @@ module "ruleset2" {
         "customer502.",
         "customer504.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     26 = {
       hostnames = [
@@ -429,7 +424,7 @@ module "ruleset2" {
         "customer534.",
         "customer535.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     27 = {
       hostnames = [
@@ -444,7 +439,7 @@ module "ruleset2" {
         "customer548.",
         "customer549.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     28 = {
       hostnames = [
@@ -459,7 +454,7 @@ module "ruleset2" {
         "customer561.",
         "customer562.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     29 = {
       hostnames = [
@@ -474,7 +469,7 @@ module "ruleset2" {
         "customer577.",
         "customer579.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     30 = {
       hostnames = [
@@ -489,7 +484,7 @@ module "ruleset2" {
         "customer607.",
         "customer608.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     31 = {
       hostnames = [
@@ -504,7 +499,7 @@ module "ruleset2" {
         "customer627.",
         "customer628.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     32 = {
       hostnames = [
@@ -519,7 +514,7 @@ module "ruleset2" {
         "customer645.",
         "customer646.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     33 = {
       hostnames = [
@@ -534,7 +529,7 @@ module "ruleset2" {
         "customer665.",
         "customer666.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     34 = {
       hostnames = [
@@ -549,7 +544,7 @@ module "ruleset2" {
         "customer682.",
         "customer684.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     35 = {
       hostnames = [
@@ -564,7 +559,7 @@ module "ruleset2" {
         "customer703.",
         "customer707.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     36 = {
       hostnames = [
@@ -579,7 +574,7 @@ module "ruleset2" {
         "customer726.",
         "customer727.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     37 = {
       hostnames = [
@@ -594,7 +589,7 @@ module "ruleset2" {
         "customer736.",
         "customer737.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     38 = {
       hostnames = [
@@ -609,7 +604,7 @@ module "ruleset2" {
         "customer760.",
         "customer761.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     39 = {
       hostnames = [
@@ -624,7 +619,7 @@ module "ruleset2" {
         "customer774.",
         "customer776.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     40 = {
       hostnames = [
@@ -639,7 +634,7 @@ module "ruleset2" {
         "customer793.",
         "customer794.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     41 = {
       hostnames = [
@@ -654,7 +649,7 @@ module "ruleset2" {
         "customer819.",
         "customer820.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     42 = {
       hostnames = [
@@ -669,7 +664,7 @@ module "ruleset2" {
         "customer845.",
         "customer849.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     43 = {
       hostnames = [
@@ -684,7 +679,7 @@ module "ruleset2" {
         "customer870.",
         "customer871.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     44 = {
       hostnames = [
@@ -699,7 +694,7 @@ module "ruleset2" {
         "customer888.",
         "customer889.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     45 = {
       hostnames = [
@@ -714,7 +709,7 @@ module "ruleset2" {
         "customer904.",
         "customer906.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     46 = {
       hostnames = [
@@ -729,7 +724,7 @@ module "ruleset2" {
         "customer928.",
         "customer929.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     47 = {
       hostnames = [
@@ -744,7 +739,7 @@ module "ruleset2" {
         "customer941.",
         "customer942.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     48 = {
       hostnames = [
@@ -759,7 +754,7 @@ module "ruleset2" {
         "customer956.",
         "customer957.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     49 = {
       hostnames = [
@@ -774,7 +769,7 @@ module "ruleset2" {
         "customer976.",
         "customer981.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     50 = {
       hostnames = [
@@ -787,7 +782,7 @@ module "ruleset2" {
         "customer996.",
         "customer997.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-14.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
   }
 }
@@ -796,7 +791,7 @@ module "ruleset1" {
   source = "./modules/ruleset"
 
   ruleset_name = "ruleset1"
-  frontdoor_id = azurerm_cdn_frontdoor_profile.res-5.id
+  frontdoor_id = data.azurerm_cdn_frontdoor_profile.res-5.id
   hostname_map = {
     0 = {
       hostnames = [
@@ -811,7 +806,7 @@ module "ruleset1" {
         "customer28.",
         "customer30.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     1 = {
       hostnames = [
@@ -826,7 +821,7 @@ module "ruleset1" {
         "customer45.",
         "customer47.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     2 = {
       hostnames = [
@@ -841,7 +836,7 @@ module "ruleset1" {
         "customer66.",
         "customer67.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     3 = {
       hostnames = [
@@ -856,7 +851,7 @@ module "ruleset1" {
         "customer90.",
         "customer91.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     4 = {
       hostnames = [
@@ -871,7 +866,7 @@ module "ruleset1" {
         "customer105.",
         "customer107.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     5 = {
       hostnames = [
@@ -886,7 +881,7 @@ module "ruleset1" {
         "customer123.",
         "customer126.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     6 = {
       hostnames = [
@@ -901,7 +896,7 @@ module "ruleset1" {
         "customer141.",
         "customer142.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     7 = {
       hostnames = [
@@ -916,7 +911,7 @@ module "ruleset1" {
         "customer158.",
         "customer160.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     8 = {
       hostnames = [
@@ -931,7 +926,7 @@ module "ruleset1" {
         "customer186.",
         "customer187.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     9 = {
       hostnames = [
@@ -946,7 +941,7 @@ module "ruleset1" {
         "customer212.",
         "customer213.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     10 = {
       hostnames = [
@@ -961,7 +956,7 @@ module "ruleset1" {
         "customer224.",
         "customer227.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     11 = {
       hostnames = [
@@ -976,7 +971,7 @@ module "ruleset1" {
         "customer248.",
         "customer249.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     12 = {
       hostnames = [
@@ -991,7 +986,7 @@ module "ruleset1" {
         "customer263.",
         "customer264.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     13 = {
       hostnames = [
@@ -1006,7 +1001,7 @@ module "ruleset1" {
         "customer278.",
         "customer280.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     14 = {
       hostnames = [
@@ -1021,7 +1016,7 @@ module "ruleset1" {
         "customer302.",
         "customer303.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     15 = {
       hostnames = [
@@ -1036,7 +1031,7 @@ module "ruleset1" {
         "customer322.",
         "customer323.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     16 = {
       hostnames = [
@@ -1051,7 +1046,7 @@ module "ruleset1" {
         "customer344.",
         "customer349.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     17 = {
       hostnames = [
@@ -1066,7 +1061,7 @@ module "ruleset1" {
         "customer370.",
         "customer372.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     18 = {
       hostnames = [
@@ -1081,7 +1076,7 @@ module "ruleset1" {
         "customer396.",
         "customer397.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     19 = {
       hostnames = [
@@ -1096,7 +1091,7 @@ module "ruleset1" {
         "customer407.",
         "customer408.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     20 = {
       hostnames = [
@@ -1111,7 +1106,7 @@ module "ruleset1" {
         "customer427.",
         "customer428.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     21 = {
       hostnames = [
@@ -1126,7 +1121,7 @@ module "ruleset1" {
         "customer449.",
         "customer450.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     22 = {
       hostnames = [
@@ -1141,7 +1136,7 @@ module "ruleset1" {
         "customer472.",
         "customer475.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     23 = {
       hostnames = [
@@ -1156,7 +1151,7 @@ module "ruleset1" {
         "customer490.",
         "customer491.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     24 = {
       hostnames = [
@@ -1171,7 +1166,7 @@ module "ruleset1" {
         "customer511.",
         "customer513.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     25 = {
       hostnames = [
@@ -1186,7 +1181,7 @@ module "ruleset1" {
         "customer524.",
         "customer525.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     26 = {
       hostnames = [
@@ -1201,7 +1196,7 @@ module "ruleset1" {
         "customer542.",
         "customer546.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     27 = {
       hostnames = [
@@ -1216,7 +1211,7 @@ module "ruleset1" {
         "customer576.",
         "customer578.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     28 = {
       hostnames = [
@@ -1231,7 +1226,7 @@ module "ruleset1" {
         "customer591.",
         "customer592.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     29 = {
       hostnames = [
@@ -1246,7 +1241,7 @@ module "ruleset1" {
         "customer606.",
         "customer611.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     30 = {
       hostnames = [
@@ -1261,7 +1256,7 @@ module "ruleset1" {
         "customer625.",
         "customer630.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     31 = {
       hostnames = [
@@ -1276,7 +1271,7 @@ module "ruleset1" {
         "customer648.",
         "customer650.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     32 = {
       hostnames = [
@@ -1291,7 +1286,7 @@ module "ruleset1" {
         "customer670.",
         "customer672.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     33 = {
       hostnames = [
@@ -1306,7 +1301,7 @@ module "ruleset1" {
         "customer691.",
         "customer692.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     34 = {
       hostnames = [
@@ -1321,7 +1316,7 @@ module "ruleset1" {
         "customer708.",
         "customer710.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     35 = {
       hostnames = [
@@ -1336,7 +1331,7 @@ module "ruleset1" {
         "customer738.",
         "customer742.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     36 = {
       hostnames = [
@@ -1351,7 +1346,7 @@ module "ruleset1" {
         "customer756.",
         "customer757.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     37 = {
       hostnames = [
@@ -1366,7 +1361,7 @@ module "ruleset1" {
         "customer781.",
         "customer782.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     38 = {
       hostnames = [
@@ -1381,7 +1376,7 @@ module "ruleset1" {
         "customer800.",
         "customer801.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     39 = {
       hostnames = [
@@ -1396,7 +1391,7 @@ module "ruleset1" {
         "customer813.",
         "customer816.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     40 = {
       hostnames = [
@@ -1411,7 +1406,7 @@ module "ruleset1" {
         "customer831.",
         "customer832.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     41 = {
       hostnames = [
@@ -1426,7 +1421,7 @@ module "ruleset1" {
         "customer847.",
         "customer848.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     42 = {
       hostnames = [
@@ -1441,7 +1436,7 @@ module "ruleset1" {
         "customer866.",
         "customer867.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     43 = {
       hostnames = [
@@ -1456,7 +1451,7 @@ module "ruleset1" {
         "customer885.",
         "customer886.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     44 = {
       hostnames = [
@@ -1471,7 +1466,7 @@ module "ruleset1" {
         "customer911.",
         "customer912.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     45 = {
       hostnames = [
@@ -1486,7 +1481,7 @@ module "ruleset1" {
         "customer925.",
         "customer927.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     46 = {
       hostnames = [
@@ -1501,7 +1496,7 @@ module "ruleset1" {
         "customer958.",
         "customer959.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     47 = {
       hostnames = [
@@ -1516,7 +1511,7 @@ module "ruleset1" {
         "customer977.",
         "customer978.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
     48 = {
       hostnames = [
@@ -1531,15 +1526,23 @@ module "ruleset1" {
         "customer992.",
         "customer993.",
       ],
-      origin_group_id = azurerm_cdn_frontdoor_origin_group.res-12.id
+      origin_group_id = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
     },
   }
 }
+
+data "azurerm_cdn_frontdoor_custom_domain" "wildcard" {
+  name                = "wildcard"
+  profile_name        = "afd-rg-flying-yeti-1"
+  resource_group_name = data.azurerm_resource_group.res-0.name
+
+}
+
 resource "azurerm_cdn_frontdoor_route" "res-7" {
   cdn_frontdoor_origin_ids        = []
-  cdn_frontdoor_custom_domain_ids = ["/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/customDomains/customer1-mike-demo-com", "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/customDomains/customer2-mike-demo-com", "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/customDomains/customer3-mike-demo-com", "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/customDomains/wildcard-east-mike-demo-com"]
-  cdn_frontdoor_endpoint_id       = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/afdEndpoints/labeastusafd"
-  cdn_frontdoor_origin_group_id   = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/originGroups/ingress-east-og"
+  cdn_frontdoor_custom_domain_ids = [data.azurerm_cdn_frontdoor_custom_domain.wildcard.id]
+  cdn_frontdoor_endpoint_id       = data.azurerm_cdn_frontdoor_profile.res-5.id
+  cdn_frontdoor_origin_group_id   = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
   cdn_frontdoor_rule_set_ids      = [module.ruleset1.ruleset_id, module.ruleset2.ruleset_id]
   forwarding_protocol             = "HttpOnly"
   https_redirect_enabled          = false
@@ -1547,187 +1550,12 @@ resource "azurerm_cdn_frontdoor_route" "res-7" {
   patterns_to_match               = ["/*"]
   supported_protocols             = ["Http", "Https"]
   depends_on = [
-    azurerm_cdn_frontdoor_endpoint.res-6,
-    azurerm_cdn_frontdoor_custom_domain.res-8,
-    azurerm_cdn_frontdoor_custom_domain.res-9,
-    azurerm_cdn_frontdoor_custom_domain.res-10,
-    azurerm_cdn_frontdoor_custom_domain.res-11,
-    azurerm_cdn_frontdoor_origin_group.res-12,
     module.ruleset1
   ]
 }
-resource "azurerm_cdn_frontdoor_custom_domain" "res-8" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
-  dns_zone_id              = "/subscriptions/e1a0076b-b0b2-4853-b8d4-90e21e86f20c/resourceGroups/dns-rg/providers/Microsoft.Network/dnsZones/mike-demo.com"
-  host_name                = "customer1.mike-demo.com"
-  name                     = "customer1-mike-demo-com"
-  tls {
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
-}
-resource "azurerm_cdn_frontdoor_custom_domain" "res-9" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
-  dns_zone_id              = "/subscriptions/e1a0076b-b0b2-4853-b8d4-90e21e86f20c/resourceGroups/dns-rg/providers/Microsoft.Network/dnsZones/mike-demo.com"
-  host_name                = "customer2.mike-demo.com"
-  name                     = "customer2-mike-demo-com"
-  tls {
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
-}
-resource "azurerm_cdn_frontdoor_custom_domain" "res-10" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
-  dns_zone_id              = "/subscriptions/e1a0076b-b0b2-4853-b8d4-90e21e86f20c/resourceGroups/dns-rg/providers/Microsoft.Network/dnsZones/mike-demo.com"
-  host_name                = "customer3.mike-demo.com"
-  name                     = "customer3-mike-demo-com"
-  tls {
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
-}
-resource "azurerm_cdn_frontdoor_custom_domain" "res-11" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
-  dns_zone_id              = "/subscriptions/e1a0076b-b0b2-4853-b8d4-90e21e86f20c/resourceGroups/dns-rg/providers/Microsoft.Network/dnsZones/east.mike-demo.com"
-  host_name                = "*.east.mike-demo.com"
-  name                     = "wildcard-east-mike-demo-com"
-  tls {
-    certificate_type = "CustomerCertificate"
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
-}
-resource "azurerm_cdn_frontdoor_origin_group" "res-12" {
-  cdn_frontdoor_profile_id                                  = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
-  name                                                      = "ingress-east-og"
-  restore_traffic_time_to_healed_or_new_endpoint_in_minutes = 0
-  session_affinity_enabled                                  = false
-  health_probe {
-    interval_in_seconds = 100
-    protocol            = "Http"
-  }
-  load_balancing {
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
-}
-resource "azurerm_cdn_frontdoor_origin" "res-13" {
-  cdn_frontdoor_origin_group_id  = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/originGroups/ingress-east-og"
-  certificate_name_check_enabled = true
-  host_name                      = "ingress-east.mike-demo.com"
-  name                           = "ingress-east"
-  weight                         = 1000
-  depends_on = [
-    azurerm_cdn_frontdoor_origin_group.res-12,
-  ]
-}
-resource "azurerm_cdn_frontdoor_origin_group" "res-14" {
-  cdn_frontdoor_profile_id                                  = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
-  name                                                      = "ingress-west-og"
-  restore_traffic_time_to_healed_or_new_endpoint_in_minutes = 0
-  session_affinity_enabled                                  = false
-  health_probe {
-    interval_in_seconds = 100
-    protocol            = "Http"
-  }
-  load_balancing {
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
-}
-resource "azurerm_cdn_frontdoor_origin" "res-15" {
-  cdn_frontdoor_origin_group_id  = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1/originGroups/ingress-west-og"
-  certificate_name_check_enabled = true
-  host_name                      = "ingress-west.mike-demo.com"
-  name                           = "ingress-west"
-  weight                         = 1000
-  depends_on = [
-    azurerm_cdn_frontdoor_origin_group.res-14,
-  ]
-}
 
-
-resource "azurerm_cdn_frontdoor_secret" "res-18" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus-afd1"
-  name                     = "akv-east-afd-wc-east-mike-demo-com-latest"
-  secret {
-    customer_certificate {
-      key_vault_certificate_id = "https://akv-east-afd.vault.azure.net/certificates/wc-east-mike-demo-com"
-    }
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-5,
-  ]
-}
-resource "azurerm_cdn_frontdoor_profile" "res-22" {
-  name                     = "lab-eastus2-afd"
-  resource_group_name      = "lab-eastus-rg"
-  response_timeout_seconds = 60
-  sku_name                 = "Premium_AzureFrontDoor"
-  depends_on = [
-    azurerm_resource_group.res-0,
-  ]
-}
-resource "azurerm_cdn_frontdoor_endpoint" "res-23" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus2-afd"
-  name                     = "lab-eastus2-afd"
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-22,
-  ]
-}
-resource "azurerm_cdn_frontdoor_route" "res-24" {
-  cdn_frontdoor_origin_ids      = []
-  cdn_frontdoor_endpoint_id     = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus2-afd/afdEndpoints/lab-eastus2-afd"
-  cdn_frontdoor_origin_group_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus2-afd/originGroups/default-origin-group"
-  name                          = "default-route"
-  patterns_to_match             = ["/*"]
-  supported_protocols           = ["Http", "Https"]
-  depends_on = [
-    azurerm_cdn_frontdoor_endpoint.res-23,
-    azurerm_cdn_frontdoor_origin_group.res-25,
-  ]
-}
-resource "azurerm_cdn_frontdoor_origin_group" "res-25" {
-  cdn_frontdoor_profile_id                                  = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus2-afd"
-  name                                                      = "default-origin-group"
-  restore_traffic_time_to_healed_or_new_endpoint_in_minutes = 0
-  session_affinity_enabled                                  = false
-  health_probe {
-    interval_in_seconds = 100
-    protocol            = "Http"
-  }
-  load_balancing {
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-22,
-  ]
-}
-resource "azurerm_cdn_frontdoor_origin" "res-26" {
-  cdn_frontdoor_origin_group_id  = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus2-afd/originGroups/default-origin-group"
-  certificate_name_check_enabled = true
-  host_name                      = "ingress-east.mike-demo.com"
-  name                           = "default-origin"
-  origin_host_header             = "ingress-east.mike-demo.com"
-  weight                         = 1000
-  depends_on = [
-    azurerm_cdn_frontdoor_origin_group.res-25,
-  ]
-}
-resource "azurerm_cdn_frontdoor_secret" "res-27" {
-  cdn_frontdoor_profile_id = "/subscriptions/8edcdd31-e61a-46ee-a19c-4083b0db9e90/resourceGroups/lab-eastus-rg/providers/Microsoft.Cdn/profiles/lab-eastus2-afd"
-  name                     = "akv-east-afd-wc-east-mike-demo-com-latest"
-  secret {
-    customer_certificate {
-      key_vault_certificate_id = "https://akv-east-afd.vault.azure.net/certificates/wc-east-mike-demo-com"
-    }
-  }
-  depends_on = [
-    azurerm_cdn_frontdoor_profile.res-22,
-  ]
+data "azurerm_cdn_frontdoor_origin_group" "eastus-og" {
+  name                = "eastus-cluster"
+  profile_name        = "afd-rg-flying-yeti-1"
+  resource_group_name = data.azurerm_resource_group.res-0.name
 }
