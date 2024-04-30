@@ -1529,7 +1529,7 @@ module "ruleset1" {
 }
 
 data "azurerm_cdn_frontdoor_custom_domain" "wildcard" {
-  name                = "afd-rg-flying-yeti-1/wildcard-sullivantim-com-e9e7"
+  name                = "wildcard-sullivantim-com-e9e7"
   profile_name        = "afd-rg-flying-yeti-1"
   resource_group_name = data.azurerm_resource_group.res-0.name
 
