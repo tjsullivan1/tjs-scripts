@@ -10,7 +10,7 @@ data "azurerm_cdn_frontdoor_profile" "res-5" {
 data "azurerm_cdn_frontdoor_endpoint" "res-6" {
   resource_group_name = data.azurerm_resource_group.res-0.name
   profile_name = data.azurerm_cdn_frontdoor_profile.res-5.name
-  name                     = "ep1-rg-flying-yeti-1-cpcwcvgkg5fuecge"
+  name                     = "ep1-rg-flying-yeti-1"
 }
 
 module "ruleset2" {
@@ -1540,7 +1540,7 @@ data "azurerm_cdn_frontdoor_custom_domain" "wildcard" {
 resource "azurerm_cdn_frontdoor_route" "res-7" {
   cdn_frontdoor_origin_ids        = []
   cdn_frontdoor_custom_domain_ids = [data.azurerm_cdn_frontdoor_custom_domain.wildcard.id]
-  cdn_frontdoor_endpoint_id       = data.azurerm_cdn_frontdoor_profile.res-5.id
+  cdn_frontdoor_endpoint_id       = data.azurerm_cdn_frontdoor_endpoint.res-6.id
   cdn_frontdoor_origin_group_id   = data.azurerm_cdn_frontdoor_origin_group.eastus-og.id
   cdn_frontdoor_rule_set_ids      = [module.ruleset1.ruleset_id, module.ruleset2.ruleset_id]
   forwarding_protocol             = "HttpOnly"
