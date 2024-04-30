@@ -16,13 +16,13 @@ provider "azurerm" {
   features {}
 }
 
-provider "azurerm" {
-  alias = "secondary"
+# provider "azurerm" {
+#   alias = "secondary"
 
-  subscription_id = var.secondary_subscription_id
-  client_id       = var.secondary_subscription_client_id
-  client_secret   = var.secondary_subscription_client_secret
-  tenant_id       = var.secondary_subscription_tenant_id
+#   subscription_id = var.secondary_subscription_id
+#   client_id       = var.secondary_subscription_client_id
+#   client_secret   = var.secondary_subscription_client_secret
+#   tenant_id       = var.secondary_subscription_tenant_id
 
-  features {}
-}
+#   features {}
+# }
