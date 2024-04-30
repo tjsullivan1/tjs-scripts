@@ -6,9 +6,11 @@ data "azurerm_cdn_frontdoor_profile" "res-5" {
   name                     = "afd-rg-flying-yeti-1"
   resource_group_name      = data.azurerm_resource_group.res-0.name
 }
-resource "azurerm_cdn_frontdoor_endpoint" "res-6" {
-  cdn_frontdoor_profile_id = data.azurerm_cdn_frontdoor_profile.res-5.id
-  name                     = "labeastusafd"
+
+data "azurerm_cdn_frontdoor_endpoint" "res-6" {
+  resource_group_name = data.azurerm_resource_group.res-0.name
+  profile_name = data.azurerm_cdn_frontdoor_profile.res-5.name
+  name                     = "ep1-rg-flying-yeti-1-cpcwcvgkg5fuecge"
 }
 
 module "ruleset2" {
