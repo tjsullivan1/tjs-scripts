@@ -9,13 +9,13 @@ terraform {
 }
 
 provider "azurerm" {
-  features { }
+  features {}
   subscription_id = var.subscription_id
 }
 
 resource "azurerm_resource_group" "rg" {
-  name     = "rg-prod-sql"
-  location = "Canada East"
+  name     = "rg-prod-sql-${var.offset}"
+  location = "Canada Central"
 }
 
 resource "azurerm_virtual_network" "vnet" {
@@ -49,7 +49,7 @@ resource "azurerm_windows_virtual_machine" "vm" {
   location              = azurerm_resource_group.rg.location
   resource_group_name   = azurerm_resource_group.rg.name
   network_interface_ids = [azurerm_network_interface.nic.id]
-  size                  = "Standard_D2s_v3"
+  size                  = "Standard_D4s_v5"
 
   source_image_reference {
     publisher = "MicrosoftSQLServer"
@@ -90,14 +90,15 @@ resource "azurerm_virtual_machine_extension" "sql" {
 
 resource "azurerm_managed_disk" "sql_data_disk" {
   count                = 4
-  name                 = "disk-vm-prod-sql-{$count.index}-data"
+  name                 = "disk-vm-prod-sql-${count.index}-data"
   resource_group_name  = azurerm_resource_group.rg.name
   location             = azurerm_resource_group.rg.location
   storage_account_type = "PremiumV2_LRS"
   create_option        = "Empty"
   disk_size_gb         = "1024"
-  disk_iops_read_write = "2500"
-  disk_mbps_read_write = "25"
+  disk_iops_read_write = var.data_disk_iops
+  disk_mbps_read_write = var.data_disk_throughput
+  zone                 = 1
 }
 
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_data_disk" {
@@ -105,7 +106,7 @@ resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_data_disk" {
   managed_disk_id    = azurerm_managed_disk.sql_data_disk[count.index].id
   virtual_machine_id = azurerm_windows_virtual_machine.vm.id
   lun                = "1${count.index}"
-  caching            = "ReadOnly"
+  caching            = "None"
 }
 
 resource "azurerm_managed_disk" "sql_log_disk" {
@@ -116,8 +117,9 @@ resource "azurerm_managed_disk" "sql_log_disk" {
   storage_account_type = "PremiumV2_LRS"
   create_option        = "Empty"
   disk_size_gb         = "1024"
-  disk_iops_read_write = "2500"
-  disk_mbps_read_write = "25"
+  disk_iops_read_write = var.log_disk_iops
+  disk_mbps_read_write = var.log_disk_throughput
+  zone                 = 1
 }
 
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_log_disk" {
