@@ -70,6 +70,11 @@ resource "azurerm_windows_virtual_machine" "vm" {
   zone = 1
 }
 
+resource "azurerm_mssql_virtual_machine" "example" {
+  virtual_machine_id = azurerm_windows_virtual_machine.vm.id
+  sql_license_type   = "AHUB"
+}
+
 resource "azurerm_virtual_machine_extension" "sql" {
   name                 = "SQLIaasExtension"
   virtual_machine_id   = azurerm_virtual_machine.vm.id
