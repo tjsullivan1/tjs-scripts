@@ -71,10 +71,6 @@ resource "azurerm_windows_virtual_machine" "vm" {
   zone = 1
 }
 
-resource "azurerm_mssql_virtual_machine" "example" {
-  virtual_machine_id = azurerm_windows_virtual_machine.vm.id
-  sql_license_type   = "AHUB"
-}
 
 resource "azurerm_virtual_machine_extension" "sql" {
   name                 = "SQLIaasExtension"
@@ -128,4 +124,15 @@ resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_log_disk" {
   virtual_machine_id = azurerm_windows_virtual_machine.vm.id
   lun                = "2${count.index}"
   caching            = "None"
+}
+
+
+resource "azurerm_mssql_virtual_machine" "example" {
+  virtual_machine_id = azurerm_windows_virtual_machine.vm.id
+  sql_license_type   = "AHUB"
+  sql_connectivity_port            = 1433
+  sql_connectivity_type            = "PRIVATE"
+  sql_connectivity_update_password = "Password1234!"
+  sql_connectivity_update_username = "sqllogin"
+
 }
