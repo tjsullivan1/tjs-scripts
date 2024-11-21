@@ -99,6 +99,7 @@ resource "azurerm_managed_disk" "sql_data_disk" {
 }
 
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_data_disk" {
+    count = 4
   managed_disk_id    = azurerm_managed_disk.sql_data_disk.id
   virtual_machine_id = azurerm_virtual_machine.vm.id
   lun                = "1${count.index}"
