@@ -87,7 +87,8 @@ resource "azurerm_virtual_machine_extension" "sql" {
 # Need to make this replicas
 
 resource "azurerm_managed_disk" "sql_data_disk" {
-  name                 = "disk-vm-prod-sql-01-data"
+  count = 4 
+  name                 = "disk-vm-prod-sql-{$count.index}-data"
   resource_group_name  = azurerm_resource_group.rg.name
   location             = azurerm_resource_group.rg.location
   storage_account_type = "PremiumV2_LRS"
@@ -100,7 +101,7 @@ resource "azurerm_managed_disk" "sql_data_disk" {
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_data_disk" {
   managed_disk_id    = azurerm_managed_disk.sql_data_disk.id
   virtual_machine_id = azurerm_virtual_machine.vm.id
-  lun                = "10"
+  lun                = "1${count.index}"
   caching            = "ReadOnly"
 }
 
