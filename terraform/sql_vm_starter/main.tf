@@ -43,35 +43,31 @@ resource "azurerm_network_interface" "nic" {
   }
 }
 
-resource "azurerm_virtual_machine" "vm" {
+resource "azurerm_windows_virtual_machine" "vm" {
   name                  = "vm-prod-sql-01"
   location              = azurerm_resource_group.rg.location
   resource_group_name   = azurerm_resource_group.rg.name
   network_interface_ids = [azurerm_network_interface.nic.id]
-  vm_size               = "Standard_D2s_v3"
+  size                  = "Standard_D2s_v3"
 
-  storage_image_reference {
+  source_image_reference {
     publisher = "MicrosoftSQLServer"
     offer     = "SQL2022-WS2022"
     sku       = "standard-gen2"
     version   = "latest"
   }
 
-  storage_os_disk {
-    name          = "myOSDisk"
-    caching       = "ReadWrite"
-    create_option = "FromImage"
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
   }
 
-  os_profile {
-    computer_name  = "hostname"
-    admin_username = "adminuser"
-    admin_password = "P@ssw0rd!" # Bad idea in PROD, this is only for lab environments
-  }
+  computer_name  = "hostname"
+  admin_username = "adminuser"
+  admin_password = "Test12341234!" # Bad idea in PROD, this is only for lab environments
 
-  os_profile_windows_config {
-    provision_vm_agent = true
-  }
+  zone = 1
 }
 
 resource "azurerm_virtual_machine_extension" "sql" {
@@ -87,19 +83,19 @@ resource "azurerm_virtual_machine_extension" "sql" {
 # Need to make this replicas
 
 resource "azurerm_managed_disk" "sql_data_disk" {
-  count = 4 
+  count                = 4
   name                 = "disk-vm-prod-sql-{$count.index}-data"
   resource_group_name  = azurerm_resource_group.rg.name
   location             = azurerm_resource_group.rg.location
   storage_account_type = "PremiumV2_LRS"
   create_option        = "Empty"
   disk_size_gb         = "1024"
-  disk_iops_read_write = "1200"
+  disk_iops_read_write = "2500"
   disk_mbps_read_write = "25"
 }
 
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_data_disk" {
-    count = 4
+  count              = 4
   managed_disk_id    = azurerm_managed_disk.sql_data_disk.id
   virtual_machine_id = azurerm_virtual_machine.vm.id
   lun                = "1${count.index}"
@@ -107,17 +103,21 @@ resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_data_disk" {
 }
 
 resource "azurerm_managed_disk" "sql_log_disk" {
-  name                 = "disk-vm-prod-sql-01-log"
+  count                = 4
+  name                 = "disk-vm-prod-sql-${count.index}-log"
   resource_group_name  = azurerm_resource_group.rg.name
   location             = azurerm_resource_group.rg.location
   storage_account_type = "PremiumV2_LRS"
   create_option        = "Empty"
   disk_size_gb         = "1024"
+  disk_iops_read_write = "2500"
+  disk_mbps_read_write = "25"
 }
 
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_log_disk" {
+  count              = 4
   managed_disk_id    = azurerm_managed_disk.sql_log_disk.id
   virtual_machine_id = azurerm_virtual_machine.vm.id
-  lun                = "20"
+  lun                = "2${count.index}"
   caching            = "None"
 }
