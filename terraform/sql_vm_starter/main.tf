@@ -1,15 +1,16 @@
 terraform {
-  required_version = ">= 1.3.0"
+  required_version = ">= 1.9"
+
   required_providers {
     azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "3.71.0"
+      version = "~> 4.0"
     }
   }
 }
 
 provider "azurerm" {
-  features {}
+  features { }
+  subscription_id = var.subscription_id
 }
 
 resource "azurerm_resource_group" "rg" {
@@ -77,7 +78,7 @@ resource "azurerm_mssql_virtual_machine" "example" {
 
 resource "azurerm_virtual_machine_extension" "sql" {
   name                 = "SQLIaasExtension"
-  virtual_machine_id   = azurerm_virtual_machine.vm.id
+  virtual_machine_id   = azurerm_windows_virtual_machine.vm.id
   publisher            = "Microsoft.SqlServer.Management"
   type                 = "SqlIaaSAgent"
   type_handler_version = "2.0"
@@ -101,8 +102,8 @@ resource "azurerm_managed_disk" "sql_data_disk" {
 
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_data_disk" {
   count              = 4
-  managed_disk_id    = azurerm_managed_disk.sql_data_disk.id
-  virtual_machine_id = azurerm_virtual_machine.vm.id
+  managed_disk_id    = azurerm_managed_disk.sql_data_disk[count.index].id
+  virtual_machine_id = azurerm_windows_virtual_machine.vm.id
   lun                = "1${count.index}"
   caching            = "ReadOnly"
 }
@@ -121,8 +122,8 @@ resource "azurerm_managed_disk" "sql_log_disk" {
 
 resource "azurerm_virtual_machine_data_disk_attachment" "add_sql_log_disk" {
   count              = 4
-  managed_disk_id    = azurerm_managed_disk.sql_log_disk.id
-  virtual_machine_id = azurerm_virtual_machine.vm.id
+  managed_disk_id    = azurerm_managed_disk.sql_log_disk[count.index].id
+  virtual_machine_id = azurerm_windows_virtual_machine.vm.id
   lun                = "2${count.index}"
   caching            = "None"
 }
