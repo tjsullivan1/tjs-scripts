@@ -2,7 +2,7 @@ name: GitHub Actions Repository Dispatch Demo
 run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
 on:
   repository_dispatch:
-    types: [test_result]
+    types: [Microsoft.Storage.BlobCreated]
   workflow_dispatch:
 jobs:
   Explore-GitHub-Actions:
