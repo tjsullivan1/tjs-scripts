@@ -58,5 +58,9 @@ resource "azurerm_linux_web_app_slot" "slot" {
   name           = "release"
   app_service_id = azurerm_linux_web_app.app1.id
 
-  site_config {}
+  site_config {
+    application_stack {
+      docker_image_name = "tjsullivan1/simple-http-server:latest"
+    }
+  }
 }
