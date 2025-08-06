@@ -16,8 +16,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and templates
 COPY app.py .
+COPY templates/ ./templates/
 
 # Create a non-root user for security
 RUN adduser --disabled-password --gecos '' appuser && \
