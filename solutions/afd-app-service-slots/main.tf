@@ -14,7 +14,7 @@ resource "azurerm_resource_group" "rg" {
 }
 
 resource "azurerm_cdn_frontdoor_profile" "afd" {
-  name                = "afd-${random_pet.rg_name.id}-${local.specifier}"
+  name                = "afd-${local.specifier}"
   resource_group_name = azurerm_resource_group.rg.name
   sku_name                 = "Standard_AzureFrontDoor"
 }
@@ -33,7 +33,7 @@ resource "azurerm_cdn_frontdoor_origin_group" "o1" {
 }
 
 resource "azurerm_service_plan" "asp1" {
-  name                = "asp-${local.specifier}-1}"
+  name                = "asp-${local.specifier}-1"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
