@@ -20,7 +20,7 @@ resource "azurerm_cdn_frontdoor_profile" "afd" {
 }
 
 resource "azurerm_cdn_frontdoor_endpoint" "ep1" {
-  name                     = "ep1-${random_pet.rg_name.id}-${local.specifier}"
+  name                     = "ep1-${local.specifier}"
   cdn_frontdoor_profile_id =  azurerm_cdn_frontdoor_profile.afd.id
 }
 
@@ -46,8 +46,8 @@ resource "azurerm_app_service_plan" "asp1" {
 resource "azurerm_linux_web_app" "app1" {
   name                = "wa-${local.specifier}-1"
   resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_service_plan.asp1.location
-  service_plan_id     = azurerm_service_plan.asp1.id
+  location            = azurerm_app_service_plan.asp1.location
+  service_plan_id     = azurerm_app_service_plan.asp1.id
 
   site_config {}
 }
