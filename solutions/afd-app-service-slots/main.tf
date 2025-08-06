@@ -32,22 +32,20 @@ resource "azurerm_cdn_frontdoor_origin_group" "o1" {
   }
 }
 
-resource "azurerm_app_service_plan" "asp1" {
+resource "azurerm_service_plan" "asp1" {
   name                = "asp-${local.specifier}-1}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
 
-  sku {
-    tier = "Standard"
-    size = "P0v3"
-  }
+  os_type = "Linux"
+  sku_name = "P0v3"
 } 
 
 resource "azurerm_linux_web_app" "app1" {
   name                = "wa-${local.specifier}-1"
   resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_app_service_plan.asp1.location
-  service_plan_id     = azurerm_app_service_plan.asp1.id
+  location            = azurerm_service_plan.asp1.location
+  service_plan_id     = azurerm_service_plan.asp1.id
 
   site_config {}
 }
