@@ -51,6 +51,7 @@ resource "azurerm_linux_web_app" "app1" {
     application_stack {
       docker_image_name = "tjsullivan1/simple-http-server:latest"
     }
+    health_check_path = "/health"
   }
 }
 
@@ -62,5 +63,6 @@ resource "azurerm_linux_web_app_slot" "slot" {
     application_stack {
       docker_image_name = "tjsullivan1/simple-http-server:latest"
     }
+    health_check_path = "/health"
   }
 }
