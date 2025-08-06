@@ -47,7 +47,11 @@ resource "azurerm_linux_web_app" "app1" {
   location            = azurerm_service_plan.asp1.location
   service_plan_id     = azurerm_service_plan.asp1.id
 
-  site_config {}
+  site_config {
+    application_stack {
+      docker_image_name = "tjsullivan1/simple-http-server:latest"
+    }
+  }
 }
 
 resource "azurerm_linux_web_app_slot" "slot" {
