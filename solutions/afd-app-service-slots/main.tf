@@ -46,6 +46,8 @@ resource "azurerm_linux_web_app" "app1" {
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_service_plan.asp1.location
   service_plan_id     = azurerm_service_plan.asp1.id
+  ftp_publish_basic_authentication_enabled = false
+  webdeploy_publish_basic_authentication_enabled = false
 
   site_config {
     application_stack {
@@ -58,11 +60,16 @@ resource "azurerm_linux_web_app" "app1" {
 resource "azurerm_linux_web_app_slot" "slot" {
   name           = "release"
   app_service_id = azurerm_linux_web_app.app1.id
-
+  ftp_publish_basic_authentication_enabled = false
+  webdeploy_publish_basic_authentication_enabled = false
+  
   site_config {
     application_stack {
       docker_image_name = "tjsullivan1/simple-http-server:latest"
     }
     health_check_path = "/health"
+
+
+    
   }
 }

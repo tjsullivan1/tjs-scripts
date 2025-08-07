@@ -10,7 +10,14 @@ templates = Jinja2Templates(directory="templates")
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello! Visit /env to see environment variables"}
+    computer_name = os.getenv("COMPUTERNAME", "Undefinded Computername")
+    host_name = os.getenv("HOSTNAME", "Undefinded Hostname")
+    website_default_host = os.getenv(
+        "APPSETTING_WEBSITE_DEFAULT_HOSTNAME", "Undefinded Website Hostname"
+    )
+    return {
+        "message": f"Hello! Visit /env to see environment variables like COMPUTERNAME: {computer_name}, HOSTNAME: {host_name}, and APPSETTING_WEBSITE_DEFAULT_HOSTNAME: {website_default_host}",
+    }
 
 
 @app.get("/env", response_class=HTMLResponse)
