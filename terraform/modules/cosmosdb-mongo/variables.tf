@@ -200,6 +200,7 @@ variable "databases" {
         keys   = list(string)
         unique = optional(bool, false)
       })), [])
+      # Note: The required _id index is automatically created for all collections
     })), [])
   }))
   default = []

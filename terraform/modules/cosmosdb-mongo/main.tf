@@ -132,7 +132,15 @@ resource "azurerm_cosmosdb_mongo_collection" "collections" {
   }
 
   dynamic "index" {
-    for_each = each.value.indexes
+    for_each = concat(
+      # Always include the required _id index
+      [{
+        keys   = ["_id"]
+        unique = true
+      }],
+      # Add user-defined indexes
+      each.value.indexes
+    )
     content {
       keys   = index.value.keys
       unique = index.value.unique

@@ -143,6 +143,30 @@ The module supports various MongoDB-specific capabilities:
 - `EnablePartialUniqueIndex`: Partial unique index support
 - `DisableRateLimitingResponses`: Disable rate limiting responses
 
+## Index Management
+
+MongoDB collections automatically include the required `_id` index. The module automatically adds this index to all collections, so you only need to specify additional indexes in your configuration:
+
+```hcl
+collections = [
+  {
+    name = "products"
+    indexes = [
+      {
+        keys   = ["name"]        # Additional index on name field
+        unique = false
+      },
+      {
+        keys   = ["sku"]         # Unique index on SKU field
+        unique = true
+      }
+    ]
+  }
+]
+```
+
+**Note**: The `_id` index is automatically created and doesn't need to be specified in your configuration.
+
 ## Backup Strategies
 
 ### Periodic Backup (Default)
