@@ -1,0 +1,117 @@
+# Basic Configuration
+name                = "myapp-cosmosdb-mongo"
+location            = "East US"
+resource_group_name = "myapp-rg"
+
+# Network Configuration
+public_network_access_enabled = true
+ip_range_filter               = ["203.0.113.0/24", "198.51.100.0/24"]
+
+# MongoDB Capabilities
+capabilities = [
+  "EnableMongo",
+  "MongoDBv4.0",
+  "mongoEnableDocLevelTTL"
+]
+
+# Consistency Policy
+consistency_policy = {
+  consistency_level       = "Session"
+  max_interval_in_seconds = 300
+  max_staleness_prefix    = 100000
+}
+
+# Geo-replication (optional)
+geo_locations = [
+  {
+    location          = "West US"
+    failover_priority = 1
+    zone_redundant    = false
+  }
+]
+
+# Backup Configuration
+backup = {
+  type                = "Periodic"
+  interval_in_minutes = 240
+  retention_in_hours  = 8
+  storage_redundancy  = "Geo"
+}
+
+# Identity Configuration
+identity = {
+  type = "SystemAssigned"
+}
+
+# MongoDB Databases and Collections
+databases = [
+  {
+    name       = "ecommerce"
+    throughput = 400
+    collections = [
+      {
+        name                = "products"
+        shard_key           = "category"
+        throughput          = 400
+        default_ttl_seconds = 86400
+        indexes = [
+          {
+            keys   = ["name"]
+            unique = false
+          },
+          {
+            keys   = ["sku"]
+            unique = true
+          }
+        ]
+      },
+      {
+        name      = "orders"
+        shard_key = "customer_id"
+        indexes = [
+          {
+            keys   = ["order_date"]
+            unique = false
+          },
+          {
+            keys   = ["customer_id", "order_date"]
+            unique = false
+          }
+        ]
+      }
+    ]
+  },
+  {
+    name = "analytics"
+    autoscale_settings = {
+      max_throughput = 4000
+    }
+    collections = [
+      {
+        name      = "events"
+        shard_key = "user_id"
+        autoscale_settings = {
+          max_throughput = 4000
+        }
+        indexes = [
+          {
+            keys   = ["timestamp"]
+            unique = false
+          },
+          {
+            keys   = ["event_type"]
+            unique = false
+          }
+        ]
+      }
+    ]
+  }
+]
+
+# Tags
+tags = {
+  Environment = "production"
+  Project     = "ecommerce-platform"
+  Owner       = "data-team"
+  CostCenter  = "engineering"
+}
