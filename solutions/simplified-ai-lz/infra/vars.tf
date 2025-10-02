@@ -8,6 +8,39 @@ variable "resource_group_name" {
   type        = string
 }
 
+# Networking Variables
+variable "use_existing_network" {
+  description = "Whether to use an existing virtual network and subnet instead of creating new ones."
+  type        = bool
+  default     = false
+}
+
+variable "existing_vnet_name" {
+  description = "Name of the existing virtual network to use. Required if use_existing_network is true."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.use_existing_network == false || (var.use_existing_network == true && var.existing_vnet_name != null)
+    error_message = "existing_vnet_name must be provided when use_existing_network is true."
+  }
+}
+
+variable "existing_vnet_resource_group_name" {
+  description = "Resource group name where the existing virtual network is located. If not provided, defaults to the main resource group."
+  type        = string
+  default     = null
+}
+
+variable "existing_subnet_name" {
+  description = "Name of the existing subnet to use. Required if use_existing_network is true."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.use_existing_network == false || (var.use_existing_network == true && var.existing_subnet_name != null)
+    error_message = "existing_subnet_name must be provided when use_existing_network is true."
+  }
+}
+
 variable "ai_foundry_name" {
   description = "The name prefix for the AI Foundry resource."
   type        = string

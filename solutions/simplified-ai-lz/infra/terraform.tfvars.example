@@ -5,6 +5,13 @@
 location            = "East US 2"
 resource_group_name = "rg-ai-landing-zone"
 
+# Networking Configuration (optional)
+# Set to true to use existing virtual network and subnet
+# use_existing_network = true
+# existing_vnet_name = "my-existing-vnet"
+# existing_vnet_resource_group_name = "rg-networking"  # Optional: defaults to main resource group
+# existing_subnet_name = "ai-subnet"
+
 # Optional variables - uncomment and modify as needed
 # ai_foundry_name      = "mycompany-ai"
 # sku_name            = "S0"

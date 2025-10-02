@@ -83,6 +83,12 @@ terraform apply
 | `cosmosdb_mongo_name` | Name for CosmosDB MongoDB account | string | "cosmosdb-mongo-ai-lz" | No |
 | `cosmosdb_mongo_capabilities` | MongoDB-specific capabilities | list(string) | ["EnableMongo", "MongoDBv4.0"] | No |
 | `cosmosdb_mongo_databases` | MongoDB database and collection config | list(object) | AI MongoDB collections | No |
+| `use_existing_network` | Use existing virtual network and subnet | bool | false | No |
+| `existing_vnet_name` | Name of existing virtual network | string | null | Conditional* |
+| `existing_vnet_resource_group_name` | Resource group of existing VNet | string | null | No |
+| `existing_subnet_name` | Name of existing subnet | string | null | Conditional* |
+
+*Required when `use_existing_network` is `true`
 
 ### Outputs
 
@@ -99,6 +105,10 @@ The module provides the following outputs:
 - `cosmosdb_mongo_account_id`: ID of the CosmosDB MongoDB account (if enabled)
 - `cosmosdb_mongo_connection_string`: Primary MongoDB connection string (sensitive)
 - `cosmosdb_mongo_databases`: Information about created MongoDB databases and collections
+- `virtual_network_id`: ID of the existing virtual network (when enabled)
+- `virtual_network_name`: Name of the existing virtual network (when enabled)
+- `subnet_id`: ID of the existing subnet (when enabled)
+- `subnet_name`: Name of the existing subnet (when enabled)
 
 ## Usage Examples
 
@@ -217,6 +227,30 @@ cosmosdb_mongo_databases = [
   }
 ]
 ```
+
+### Using Existing Network Infrastructure
+
+If you have existing virtual network infrastructure, you can reference it instead of creating new networking resources:
+
+```hcl
+location            = "East US 2"
+resource_group_name = "rg-ai-landing-zone"
+
+# Use existing network infrastructure
+use_existing_network               = true
+existing_vnet_name                 = "hub-vnet"
+existing_vnet_resource_group_name  = "rg-networking-hub"
+existing_subnet_name               = "ai-workloads-subnet"
+
+# Enable MongoDB with network integration
+enable_mongodb = true
+cosmosdb_mongo_public_access = false  # Use private networking
+```
+
+This configuration will:
+- Reference the existing virtual network and subnet via data sources
+- Provide network information in outputs for use by other modules
+- Allow for private networking configurations with existing infrastructure
 
 ## Module Reference
 

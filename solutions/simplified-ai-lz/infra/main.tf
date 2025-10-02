@@ -10,6 +10,22 @@ resource "azurerm_resource_group" "main" {
   }
 }
 
+# Data Sources for Existing Network Resources
+data "azurerm_virtual_network" "existing" {
+  count = var.use_existing_network ? 1 : 0
+
+  name                = var.existing_vnet_name
+  resource_group_name = var.existing_vnet_resource_group_name != null ? var.existing_vnet_resource_group_name : azurerm_resource_group.main.name
+}
+
+data "azurerm_subnet" "existing" {
+  count = var.use_existing_network ? 1 : 0
+
+  name                 = var.existing_subnet_name
+  virtual_network_name = var.existing_vnet_name
+  resource_group_name  = var.existing_vnet_resource_group_name != null ? var.existing_vnet_resource_group_name : azurerm_resource_group.main.name
+}
+
 # Deploy AI Foundry using the module from GitHub
 module "ai_foundry" {
   source = "github.com/tjsullivan1/tjs-scripts//terraform/modules/ai_foundry"

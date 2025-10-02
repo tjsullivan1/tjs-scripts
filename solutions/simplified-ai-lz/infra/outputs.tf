@@ -14,6 +14,37 @@ output "resource_group_location" {
   value       = azurerm_resource_group.main.location
 }
 
+# Networking outputs
+output "virtual_network_id" {
+  description = "The ID of the virtual network (existing network when use_existing_network is true)."
+  value       = var.use_existing_network ? data.azurerm_virtual_network.existing[0].id : null
+}
+
+output "virtual_network_name" {
+  description = "The name of the virtual network (existing network when use_existing_network is true)."
+  value       = var.use_existing_network ? data.azurerm_virtual_network.existing[0].name : null
+}
+
+output "virtual_network_address_space" {
+  description = "The address space of the virtual network (existing network when use_existing_network is true)."
+  value       = var.use_existing_network ? data.azurerm_virtual_network.existing[0].address_space : null
+}
+
+output "subnet_id" {
+  description = "The ID of the subnet (existing subnet when use_existing_network is true)."
+  value       = var.use_existing_network ? data.azurerm_subnet.existing[0].id : null
+}
+
+output "subnet_name" {
+  description = "The name of the subnet (existing subnet when use_existing_network is true)."
+  value       = var.use_existing_network ? data.azurerm_subnet.existing[0].name : null
+}
+
+output "subnet_address_prefixes" {
+  description = "The address prefixes of the subnet (existing subnet when use_existing_network is true)."
+  value       = var.use_existing_network ? data.azurerm_subnet.existing[0].address_prefixes : null
+}
+
 # AI Foundry outputs
 output "ai_foundry_id" {
   description = "The ID of the AI Foundry resource."
