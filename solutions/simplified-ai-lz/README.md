@@ -10,6 +10,7 @@ The solution deploys the following Azure resources:
 - **AI Foundry**: Azure Cognitive Services account configured for AI services
 - **GPT Deployment**: OpenAI GPT-4o model deployment for AI workloads
 - **AI Project**: Project container for organizing AI assets and workflows
+- **CosmosDB**: NoSQL database for storing AI training data, model metadata, and inference logs
 
 ## Prerequisites
 
@@ -74,6 +75,9 @@ terraform apply
 | `gpt_model_name` | GPT model to deploy | string | "gpt-4o" | No |
 | `gpt_model_version` | Version of GPT model | string | "2024-11-20" | No |
 | `project_display_name` | Display name for AI project | string | "AI Foundry Project" | No |
+| `cosmosdb_name` | Name for CosmosDB account | string | "cosmosdb-ai-lz" | No |
+| `cosmosdb_consistency_policy` | Consistency policy for CosmosDB | object | Session consistency | No |
+| `cosmosdb_databases` | Database and container configuration | list(object) | AI data containers | No |
 
 ### Outputs
 
@@ -84,6 +88,9 @@ The module provides the following outputs:
 - `ai_foundry_name`: Name of the AI Foundry resource
 - `gpt_deployment_id`: ID of the GPT deployment
 - `ai_foundry_project_id`: ID of the AI project
+- `cosmosdb_account_id`: ID of the CosmosDB account
+- `cosmosdb_account_endpoint`: CosmosDB connection endpoint
+- `cosmosdb_databases`: Information about created databases and containers
 
 ## Usage Examples
 
@@ -105,6 +112,32 @@ ai_foundry_name      = "mycompany-ai"
 disable_local_auth   = true  # Use Entra ID only
 gpt_capacity         = 10    # Higher capacity for production
 project_display_name = "Production AI Workloads"
+
+# CosmosDB for AI data storage
+cosmosdb_name = "mycompany-ai-data"
+cosmosdb_consistency_policy = {
+  consistency_level = "Strong"
+}
+cosmosdb_databases = [
+  {
+    name       = "production-ai-data"
+    throughput = 1000
+    containers = [
+      {
+        name               = "training-datasets"
+        partition_key_path = "/datasetId"
+        throughput        = 1000
+      },
+      {
+        name               = "model-registry"
+        partition_key_path = "/modelId"
+        autoscale_settings = {
+          max_throughput = 4000
+        }
+      }
+    ]
+  }
+]
 ```
 
 ## Module Reference

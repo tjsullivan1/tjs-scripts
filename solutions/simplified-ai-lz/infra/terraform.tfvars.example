@@ -17,3 +17,61 @@ resource_group_name = "rg-ai-landing-zone"
 # project_name        = "project"
 # project_display_name = "AI Foundry Project"
 # project_description = "AI Foundry project for machine learning workloads"
+
+# CosmosDB Configuration
+# cosmosdb_name = "my-ai-cosmosdb"
+
+# Consistency policy (uncomment to customize)
+# cosmosdb_consistency_policy = {
+#   consistency_level       = "Session"
+#   max_interval_in_seconds = 300
+#   max_staleness_prefix    = 100000
+# }
+
+# Backup configuration (uncomment to customize)
+# cosmosdb_backup = {
+#   type                = "Periodic"
+#   interval_in_minutes = 240
+#   retention_in_hours  = 8
+#   storage_redundancy  = "Geo"
+# }
+
+# Capabilities (uncomment as needed)
+# cosmosdb_capabilities = [
+#   "EnableAggregationPipeline"
+# ]
+
+# Custom database and container configuration
+# cosmosdb_databases = [
+#   {
+#     name       = "ai-workloads"
+#     throughput = 400
+#     containers = [
+#       {
+#         name               = "training-datasets"
+#         partition_key_path = "/datasetId"
+#         throughput        = 400
+#         default_ttl       = -1
+#       },
+#       {
+#         name               = "model-artifacts"
+#         partition_key_path = "/modelId"
+#         throughput        = 400
+#         default_ttl       = -1
+#       },
+#       {
+#         name               = "inference-results"
+#         partition_key_path = "/sessionId"
+#         throughput        = 400
+#         default_ttl       = 2592000  # 30 days
+#       }
+#     ]
+#   }
+# ]
+
+# Global tags
+# tags = {
+#   Environment = "development"
+#   Project     = "ai-landing-zone"
+#   Owner       = "ai-team@company.com"
+# }

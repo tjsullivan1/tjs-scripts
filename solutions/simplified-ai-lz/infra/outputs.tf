@@ -44,3 +44,41 @@ output "gpt_deployment_name" {
   description = "The name of the GPT deployment."
   value       = module.ai_foundry.gpt_deployment_name
 }
+
+# CosmosDB outputs
+output "cosmosdb_account_id" {
+  description = "The ID of the CosmosDB account."
+  value       = module.cosmosdb.cosmosdb_account_id
+}
+
+output "cosmosdb_account_name" {
+  description = "The name of the CosmosDB account."
+  value       = module.cosmosdb.cosmosdb_account_name
+}
+
+output "cosmosdb_account_endpoint" {
+  description = "The endpoint used to connect to the CosmosDB account."
+  value       = module.cosmosdb.cosmosdb_account_endpoint
+}
+
+output "cosmosdb_account_primary_key" {
+  description = "The primary key for the CosmosDB account."
+  value       = module.cosmosdb.cosmosdb_account_primary_key
+  sensitive   = true
+}
+
+output "cosmosdb_account_connection_strings" {
+  description = "A list of connection strings available for this CosmosDB account."
+  value       = module.cosmosdb.cosmosdb_account_connection_strings
+  sensitive   = true
+}
+
+output "cosmosdb_databases" {
+  description = "A map of the created databases with their IDs."
+  value       = module.cosmosdb.cosmosdb_databases
+}
+
+output "cosmosdb_containers" {
+  description = "A map of the created containers with their details."
+  value       = module.cosmosdb.cosmosdb_containers
+}

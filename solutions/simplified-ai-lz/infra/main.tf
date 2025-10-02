@@ -35,3 +35,30 @@ module "ai_foundry" {
   project_display_name = var.project_display_name
   project_description  = var.project_description
 }
+
+# Deploy CosmosDB using the module from GitHub
+module "cosmosdb" {
+  source = "github.com/tjsullivan1/tjs-scripts//terraform/modules/cosmosdb"
+
+  name                = var.cosmosdb_name
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+
+  # CosmosDB configuration
+  consistency_policy = var.cosmosdb_consistency_policy
+  backup            = var.cosmosdb_backup
+  capabilities      = var.cosmosdb_capabilities
+
+  # Database and container configuration
+  databases = var.cosmosdb_databases
+
+  # Tagging
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "AI Data Storage"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}

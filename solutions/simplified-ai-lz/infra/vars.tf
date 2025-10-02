@@ -73,3 +73,117 @@ variable "project_description" {
   type        = string
   default     = "AI Foundry project for machine learning workloads"
 }
+
+# CosmosDB Variables
+variable "cosmosdb_name" {
+  description = "The name of the CosmosDB account. Must be globally unique."
+  type        = string
+  default     = "cosmosdb-ai-lz"
+}
+
+variable "cosmosdb_consistency_policy" {
+  description = "The consistency policy for the CosmosDB account."
+  type = object({
+    consistency_level       = string
+    max_interval_in_seconds = optional(number, 300)
+    max_staleness_prefix    = optional(number, 100000)
+  })
+  default = {
+    consistency_level       = "Session"
+    max_interval_in_seconds = 300
+    max_staleness_prefix    = 100000
+  }
+}
+
+variable "cosmosdb_backup" {
+  description = "Backup configuration for the CosmosDB account."
+  type = object({
+    type                = string
+    interval_in_minutes = optional(number, 240)
+    retention_in_hours  = optional(number, 8)
+    storage_redundancy  = optional(string, "Geo")
+  })
+  default = {
+    type                = "Periodic"
+    interval_in_minutes = 240
+    retention_in_hours  = 8
+    storage_redundancy  = "Geo"
+  }
+}
+
+variable "cosmosdb_capabilities" {
+  description = "List of capabilities to enable for the CosmosDB account."
+  type        = list(string)
+  default     = []
+}
+
+variable "cosmosdb_databases" {
+  description = "List of databases to create in the CosmosDB account."
+  type = list(object({
+    name       = string
+    throughput = optional(number)
+    autoscale_settings = optional(object({
+      max_throughput = number
+    }))
+    containers = optional(list(object({
+      name                  = string
+      partition_key_path    = string
+      partition_key_version = optional(number, 1)
+      throughput           = optional(number)
+      autoscale_settings = optional(object({
+        max_throughput = number
+      }))
+      default_ttl = optional(number, -1)
+      unique_key = optional(list(object({
+        paths = list(string)
+      })), [])
+      included_path = optional(list(object({
+        path = string
+      })), [])
+      excluded_path = optional(list(object({
+        path = string
+      })), [])
+      composite_index = optional(list(object({
+        index = list(object({
+          path  = string
+          order = string
+        }))
+      })), [])
+      spatial_index = optional(list(object({
+        path = string
+      })), [])
+    })), [])
+  }))
+  default = [
+    {
+      name       = "ai-data"
+      throughput = 400
+      containers = [
+        {
+          name               = "training-data"
+          partition_key_path = "/datasetId"
+          throughput        = 400
+          default_ttl       = -1
+        },
+        {
+          name               = "model-metadata"
+          partition_key_path = "/modelId"
+          throughput        = 400
+          default_ttl       = -1
+        },
+        {
+          name               = "inference-logs"
+          partition_key_path = "/sessionId"
+          throughput        = 400
+          default_ttl       = 2592000  # 30 days
+        }
+      ]
+    }
+  ]
+}
+
+variable "tags" {
+  description = "A mapping of tags to assign to all resources."
+  type        = map(string)
+  default     = {}
+}
