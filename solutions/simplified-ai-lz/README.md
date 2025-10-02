@@ -87,8 +87,12 @@ terraform apply
 | `existing_vnet_name` | Name of existing virtual network | string | null | Conditional* |
 | `existing_vnet_resource_group_name` | Resource group of existing VNet | string | null | No |
 | `existing_subnet_name` | Name of existing subnet | string | null | Conditional* |
+| `enable_private_endpoints` | Create private endpoints for AI services | bool | false | No |
+| `create_private_dns_zones` | Create private DNS zones | bool | true | No |
+| `private_dns_zone_ids` | Existing private DNS zone IDs | object | {} | No |
 
 *Required when `use_existing_network` is `true`
+**Requires `use_existing_network` to be `true`
 
 ### Outputs
 
@@ -109,6 +113,10 @@ The module provides the following outputs:
 - `virtual_network_name`: Name of the existing virtual network (when enabled)
 - `subnet_id`: ID of the existing subnet (when enabled)
 - `subnet_name`: Name of the existing subnet (when enabled)
+- `private_endpoint_cosmosdb_sql_id`: ID of the CosmosDB SQL private endpoint
+- `private_endpoint_cosmosdb_mongo_id`: ID of the CosmosDB MongoDB private endpoint (when enabled)
+- `private_endpoint_ai_foundry_id`: ID of the AI Foundry private endpoint
+- `private_dns_zone_ids`: IDs of the private DNS zones
 
 ## Usage Examples
 
@@ -251,6 +259,45 @@ This configuration will:
 - Reference the existing virtual network and subnet via data sources
 - Provide network information in outputs for use by other modules
 - Allow for private networking configurations with existing infrastructure
+
+### Private Endpoints for Enterprise Security
+
+For enterprise deployments requiring private networking, you can enable private endpoints for all AI services:
+
+```hcl
+location            = "East US 2"
+resource_group_name = "rg-ai-landing-zone"
+
+# Use existing network infrastructure
+use_existing_network               = true
+existing_vnet_name                 = "hub-vnet"
+existing_vnet_resource_group_name  = "rg-networking-hub"
+existing_subnet_name               = "private-endpoints-subnet"
+
+# Enable private endpoints
+enable_private_endpoints = true
+
+# Use centralized DNS zones (enterprise scenario)
+create_private_dns_zones = false
+private_dns_zone_ids = {
+  cosmos_sql         = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg-dns-hub/providers/Microsoft.Network/privateDnsZones/privatelink.documents.azure.com"
+  cosmos_mongo       = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg-dns-hub/providers/Microsoft.Network/privateDnsZones/privatelink.mongo.cosmos.azure.com"
+  cognitive_services = "/subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg-dns-hub/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com"
+}
+
+# Enable MongoDB with private networking
+enable_mongodb = true
+cosmosdb_mongo_public_access = false
+
+# Also disable public access for SQL API
+cosmosdb_public_network_access_enabled = false
+```
+
+This configuration will:
+- Create private endpoints for CosmosDB SQL API, MongoDB API, and AI Foundry
+- Use existing centralized private DNS zones for enterprise DNS management
+- Disable public access to all database services
+- Enable secure communication through the private network only
 
 ## Module Reference
 

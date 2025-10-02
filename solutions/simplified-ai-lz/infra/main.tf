@@ -18,7 +18,7 @@ data "azurerm_virtual_network" "existing" {
   resource_group_name = var.existing_vnet_resource_group_name != null ? var.existing_vnet_resource_group_name : azurerm_resource_group.main.name
 }
 
-data "azurerm_subnet" "existing" {
+data "azurerm_subnet" "pe" {
   count = var.use_existing_network ? 1 : 0
 
   name                 = var.existing_subnet_name
@@ -110,4 +110,215 @@ module "cosmosdb_mongo" {
     },
     var.tags
   )
+}
+
+# Private Endpoints
+# Private Endpoint for CosmosDB SQL API
+resource "azurerm_private_endpoint" "cosmosdb_sql" {
+  count = var.enable_private_endpoints ? 1 : 0
+
+  name                = "${var.cosmosdb_name}-pe"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = data.azurerm_subnet.pe[0].id
+
+  private_service_connection {
+    name                           = "${var.cosmosdb_name}-psc"
+    private_connection_resource_id = module.cosmosdb.cosmosdb_account_id
+    is_manual_connection           = false
+    subresource_names              = ["Sql"]
+  }
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "CosmosDB Private Access"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Private Endpoint for CosmosDB MongoDB API
+resource "azurerm_private_endpoint" "cosmosdb_mongo" {
+  count = var.enable_private_endpoints && var.enable_mongodb ? 1 : 0
+
+  name                = "${var.cosmosdb_mongo_name}-pe"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = data.azurerm_subnet.pe[0].id
+
+  private_service_connection {
+    name                           = "${var.cosmosdb_mongo_name}-psc"
+    private_connection_resource_id = module.cosmosdb_mongo[0].cosmosdb_account_id
+    is_manual_connection           = false
+    subresource_names              = ["MongoDB"]
+  }
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "CosmosDB MongoDB Private Access"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Private Endpoint for AI Foundry (Cognitive Services)
+resource "azurerm_private_endpoint" "ai_foundry" {
+  count = var.enable_private_endpoints ? 1 : 0
+
+  name                = "${var.ai_foundry_name}-pe"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+  subnet_id           = data.azurerm_subnet.pe[0].id
+
+  private_service_connection {
+    name                           = "${var.ai_foundry_name}-psc"
+    private_connection_resource_id = module.ai_foundry.ai_foundry_id
+    is_manual_connection           = false
+    subresource_names              = ["account"]
+  }
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "AI Foundry Private Access"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Private DNS Zones
+# Private DNS Zone for CosmosDB SQL API
+resource "azurerm_private_dns_zone" "cosmos_sql" {
+  count = var.enable_private_endpoints && var.create_private_dns_zones && var.private_dns_zone_ids.cosmos_sql == null ? 1 : 0
+
+  name                = "privatelink.documents.azure.com"
+  resource_group_name = azurerm_resource_group.main.name
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "CosmosDB SQL Private DNS"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Private DNS Zone for CosmosDB MongoDB API
+resource "azurerm_private_dns_zone" "cosmos_mongo" {
+  count = var.enable_private_endpoints && var.enable_mongodb && var.create_private_dns_zones && var.private_dns_zone_ids.cosmos_mongo == null ? 1 : 0
+
+  name                = "privatelink.mongo.cosmos.azure.com"
+  resource_group_name = azurerm_resource_group.main.name
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "CosmosDB MongoDB Private DNS"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Private DNS Zone for Cognitive Services
+resource "azurerm_private_dns_zone" "cognitive_services" {
+  count = var.enable_private_endpoints && var.create_private_dns_zones && var.private_dns_zone_ids.cognitive_services == null ? 1 : 0
+
+  name                = "privatelink.cognitiveservices.azure.com"
+  resource_group_name = azurerm_resource_group.main.name
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "Cognitive Services Private DNS"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Private DNS Zone Virtual Network Links
+resource "azurerm_private_dns_zone_virtual_network_link" "cosmos_sql" {
+  count = var.enable_private_endpoints && (var.create_private_dns_zones || var.private_dns_zone_ids.cosmos_sql != null) ? 1 : 0
+
+  name                  = "${var.cosmosdb_name}-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = var.private_dns_zone_ids.cosmos_sql != null ? data.azurerm_private_dns_zone.cosmos_sql[0].name : azurerm_private_dns_zone.cosmos_sql[0].name
+  virtual_network_id    = data.azurerm_virtual_network.existing[0].id
+  registration_enabled  = false
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "CosmosDB SQL DNS Link"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "cosmos_mongo" {
+  count = var.enable_private_endpoints && var.enable_mongodb && (var.create_private_dns_zones || var.private_dns_zone_ids.cosmos_mongo != null) ? 1 : 0
+
+  name                  = "${var.cosmosdb_mongo_name}-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = var.private_dns_zone_ids.cosmos_mongo != null ? data.azurerm_private_dns_zone.cosmos_mongo[0].name : azurerm_private_dns_zone.cosmos_mongo[0].name
+  virtual_network_id    = data.azurerm_virtual_network.existing[0].id
+  registration_enabled  = false
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "CosmosDB MongoDB DNS Link"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "cognitive_services" {
+  count = var.enable_private_endpoints && (var.create_private_dns_zones || var.private_dns_zone_ids.cognitive_services != null) ? 1 : 0
+
+  name                  = "${var.ai_foundry_name}-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = var.private_dns_zone_ids.cognitive_services != null ? data.azurerm_private_dns_zone.cognitive_services[0].name : azurerm_private_dns_zone.cognitive_services[0].name
+  virtual_network_id    = data.azurerm_virtual_network.existing[0].id
+  registration_enabled  = false
+
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "Cognitive Services DNS Link"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Data sources for existing private DNS zones (when using existing zones)
+data "azurerm_private_dns_zone" "cosmos_sql" {
+  count = var.enable_private_endpoints && var.private_dns_zone_ids.cosmos_sql != null ? 1 : 0
+
+  name                = "privatelink.documents.azure.com"
+  resource_group_name = split("/", var.private_dns_zone_ids.cosmos_sql)[4]
+}
+
+data "azurerm_private_dns_zone" "cosmos_mongo" {
+  count = var.enable_private_endpoints && var.enable_mongodb && var.private_dns_zone_ids.cosmos_mongo != null ? 1 : 0
+
+  name                = "privatelink.mongo.cosmos.azure.com"
+  resource_group_name = split("/", var.private_dns_zone_ids.cosmos_mongo)[4]
+}
+
+data "azurerm_private_dns_zone" "cognitive_services" {
+  count = var.enable_private_endpoints && var.private_dns_zone_ids.cognitive_services != null ? 1 : 0
+
+  name                = "privatelink.cognitiveservices.azure.com"
+  resource_group_name = split("/", var.private_dns_zone_ids.cognitive_services)[4]
 }

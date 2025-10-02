@@ -41,6 +41,33 @@ variable "existing_subnet_name" {
   }
 }
 
+# Private Endpoint Variables
+variable "enable_private_endpoints" {
+  description = "Whether to create private endpoints for AI services. Requires use_existing_network to be true."
+  type        = bool
+  default     = false
+  validation {
+    condition     = var.enable_private_endpoints == false || (var.enable_private_endpoints == true && var.use_existing_network == true)
+    error_message = "enable_private_endpoints requires use_existing_network to be true."
+  }
+}
+
+variable "private_dns_zone_ids" {
+  description = "Map of private DNS zone IDs for private endpoints. If not provided, new zones will be created."
+  type = object({
+    cosmos_sql         = optional(string)
+    cosmos_mongo       = optional(string)
+    cognitive_services = optional(string)
+  })
+  default = {}
+}
+
+variable "create_private_dns_zones" {
+  description = "Whether to create private DNS zones for private endpoints. Set to false if using existing zones."
+  type        = bool
+  default     = true
+}
+
 variable "ai_foundry_name" {
   description = "The name prefix for the AI Foundry resource."
   type        = string

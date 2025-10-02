@@ -12,6 +12,22 @@ resource_group_name = "rg-ai-landing-zone"
 # existing_vnet_resource_group_name = "rg-networking"  # Optional: defaults to main resource group
 # existing_subnet_name = "ai-subnet"
 
+# Private Endpoints Configuration (optional)
+# Requires use_existing_network = true
+# enable_private_endpoints = true
+
+# Private DNS Zones Configuration (optional)
+# Set to false if using existing centralized DNS zones
+# create_private_dns_zones = true
+
+# Existing Private DNS Zone IDs (optional)
+# Use when create_private_dns_zones = false
+# private_dns_zone_ids = {
+#   cosmos_sql         = "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/privateDnsZones/privatelink.documents.azure.com"
+#   cosmos_mongo       = "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/privateDnsZones/privatelink.mongo.cosmos.azure.com"
+#   cognitive_services = "/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Network/privateDnsZones/privatelink.cognitiveservices.azure.com"
+# }
+
 # Optional variables - uncomment and modify as needed
 # ai_foundry_name      = "mycompany-ai"
 # sku_name            = "S0"
