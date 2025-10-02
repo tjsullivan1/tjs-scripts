@@ -82,3 +82,47 @@ output "cosmosdb_containers" {
   description = "A map of the created containers with their details."
   value       = module.cosmosdb.cosmosdb_containers
 }
+
+# MongoDB outputs
+output "cosmosdb_mongo_account_id" {
+  description = "The ID of the CosmosDB MongoDB account."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_account_id : null
+}
+
+output "cosmosdb_mongo_account_name" {
+  description = "The name of the CosmosDB MongoDB account."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_account_name : null
+}
+
+output "cosmosdb_mongo_account_endpoint" {
+  description = "The endpoint used to connect to the CosmosDB MongoDB account."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_account_endpoint : null
+}
+
+output "cosmosdb_mongo_connection_string" {
+  description = "The primary MongoDB connection string for the CosmosDB account."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_account_mongo_connection_string : null
+  sensitive   = true
+}
+
+output "cosmosdb_mongo_readonly_connection_string" {
+  description = "The primary readonly MongoDB connection string for the CosmosDB account."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_account_primary_readonly_mongo_connection_string : null
+  sensitive   = true
+}
+
+output "cosmosdb_mongo_connection_strings" {
+  description = "All MongoDB connection strings for the CosmosDB account."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_account_connection_strings : null
+  sensitive   = true
+}
+
+output "cosmosdb_mongo_databases" {
+  description = "A map of the created MongoDB databases with their IDs."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_databases : null
+}
+
+output "cosmosdb_mongo_collections" {
+  description = "A map of the created MongoDB collections with their details."
+  value       = var.enable_mongodb ? module.cosmosdb_mongo[0].cosmosdb_collections : null
+}

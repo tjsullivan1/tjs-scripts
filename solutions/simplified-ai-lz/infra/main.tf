@@ -16,19 +16,19 @@ module "ai_foundry" {
 
   # Pass the resource group object to the module
   resource_group_id = azurerm_resource_group.main.id
-  location       = var.location
+  location          = var.location
 
   # AI Foundry configuration
   ai_foundry_name    = var.ai_foundry_name
-  sku_name          = var.sku_name
+  sku_name           = var.sku_name
   disable_local_auth = var.disable_local_auth
 
   # GPT deployment configuration
   gpt_deployment_name = var.gpt_deployment_name
-  gpt_model_name     = var.gpt_model_name
-  gpt_model_version  = var.gpt_model_version
-  gpt_sku_name       = var.gpt_sku_name
-  gpt_capacity       = var.gpt_capacity
+  gpt_model_name      = var.gpt_model_name
+  gpt_model_version   = var.gpt_model_version
+  gpt_sku_name        = var.gpt_sku_name
+  gpt_capacity        = var.gpt_capacity
 
   # Project configuration
   project_name         = var.project_name
@@ -46,8 +46,8 @@ module "cosmosdb" {
 
   # CosmosDB configuration
   consistency_policy = var.cosmosdb_consistency_policy
-  backup            = var.cosmosdb_backup
-  capabilities      = var.cosmosdb_capabilities
+  backup             = var.cosmosdb_backup
+  capabilities       = var.cosmosdb_capabilities
 
   # Database and container configuration
   databases = var.cosmosdb_databases
@@ -57,6 +57,39 @@ module "cosmosdb" {
     {
       Environment = "AI Landing Zone"
       Purpose     = "AI Data Storage"
+      CreatedBy   = "Terraform"
+    },
+    var.tags
+  )
+}
+
+# Deploy CosmosDB MongoDB API using the module from GitHub
+module "cosmosdb_mongo" {
+  count = var.enable_mongodb ? 1 : 0
+
+  source = "github.com/tjsullivan1/tjs-scripts//terraform/modules/cosmosdb-mongo"
+
+  name                = var.cosmosdb_mongo_name
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+
+  # MongoDB configuration
+  consistency_policy = var.cosmosdb_mongo_consistency_policy
+  backup             = var.cosmosdb_mongo_backup
+  capabilities       = var.cosmosdb_mongo_capabilities
+
+  # Network configuration
+  public_network_access_enabled = var.cosmosdb_mongo_public_access
+  ip_range_filter               = var.cosmosdb_mongo_ip_filter
+
+  # Database and collection configuration
+  databases = var.cosmosdb_mongo_databases
+
+  # Tagging
+  tags = merge(
+    {
+      Environment = "AI Landing Zone"
+      Purpose     = "AI MongoDB Storage"
       CreatedBy   = "Terraform"
     },
     var.tags

@@ -75,3 +75,80 @@ resource_group_name = "rg-ai-landing-zone"
 #   Project     = "ai-landing-zone"
 #   Owner       = "ai-team@company.com"
 # }
+
+# MongoDB Configuration (optional)
+# Set to true to deploy CosmosDB MongoDB API alongside SQL API
+# enable_mongodb = true
+# cosmosdb_mongo_name = "my-ai-mongo-db"
+
+# MongoDB consistency policy (uncomment to customize)
+# cosmosdb_mongo_consistency_policy = {
+#   consistency_level       = "Session"
+#   max_interval_in_seconds = 300
+#   max_staleness_prefix    = 100000
+# }
+
+# MongoDB backup configuration (uncomment to customize)
+# cosmosdb_mongo_backup = {
+#   type                = "Periodic"
+#   interval_in_minutes = 240
+#   retention_in_hours  = 8
+#   storage_redundancy  = "Geo"
+# }
+
+# MongoDB capabilities (uncomment to customize)
+# cosmosdb_mongo_capabilities = [
+#   "EnableMongo",
+#   "MongoDBv4.0",
+#   "mongoEnableDocLevelTTL",
+#   "EnableMongo16MBDocumentSupport"
+# ]
+
+# MongoDB network access (uncomment to customize)
+# cosmosdb_mongo_public_access = true
+# cosmosdb_mongo_ip_filter = [
+#   "203.0.113.0/24",
+#   "198.51.100.0/24"
+# ]
+
+# Custom MongoDB database and collection configuration
+# cosmosdb_mongo_databases = [
+#   {
+#     name       = "ai-mongodb"
+#     throughput = 400
+#     collections = [
+#       {
+#         name                = "vector-store"
+#         shard_key           = "document_id"
+#         throughput          = 400
+#         default_ttl_seconds = null
+#         indexes = [
+#           {
+#             keys   = ["embedding_model"]
+#             unique = false
+#           },
+#           {
+#             keys   = ["document_id"]
+#             unique = true
+#           }
+#         ]
+#       },
+#       {
+#         name                = "chat-history"
+#         shard_key           = "user_id"
+#         throughput          = 400
+#         default_ttl_seconds = 2592000  # 30 days
+#         indexes = [
+#           {
+#             keys   = ["session_id"]
+#             unique = true
+#           },
+#           {
+#             keys   = ["user_id", "timestamp"]
+#             unique = false
+#           }
+#         ]
+#       }
+#     ]
+#   }
+# ]

@@ -129,7 +129,7 @@ variable "cosmosdb_databases" {
       name                  = string
       partition_key_path    = string
       partition_key_version = optional(number, 1)
-      throughput           = optional(number)
+      throughput            = optional(number)
       autoscale_settings = optional(object({
         max_throughput = number
       }))
@@ -162,20 +162,20 @@ variable "cosmosdb_databases" {
         {
           name               = "training-data"
           partition_key_path = "/datasetId"
-          throughput        = 400
-          default_ttl       = -1
+          throughput         = 400
+          default_ttl        = -1
         },
         {
           name               = "model-metadata"
           partition_key_path = "/modelId"
-          throughput        = 400
-          default_ttl       = -1
+          throughput         = 400
+          default_ttl        = -1
         },
         {
           name               = "inference-logs"
           partition_key_path = "/sessionId"
-          throughput        = 400
-          default_ttl       = 2592000  # 30 days
+          throughput         = 400
+          default_ttl        = 2592000 # 30 days
         }
       ]
     }
@@ -186,4 +186,144 @@ variable "tags" {
   description = "A mapping of tags to assign to all resources."
   type        = map(string)
   default     = {}
+}
+
+# MongoDB Variables
+variable "enable_mongodb" {
+  description = "Whether to deploy CosmosDB MongoDB API alongside SQL API."
+  type        = bool
+  default     = false
+}
+
+variable "cosmosdb_mongo_name" {
+  description = "The name of the CosmosDB MongoDB account. Must be globally unique."
+  type        = string
+  default     = "cosmosdb-mongo-ai-lz"
+}
+
+variable "cosmosdb_mongo_consistency_policy" {
+  description = "The consistency policy for the CosmosDB MongoDB account."
+  type = object({
+    consistency_level       = string
+    max_interval_in_seconds = optional(number, 300)
+    max_staleness_prefix    = optional(number, 100000)
+  })
+  default = {
+    consistency_level       = "Session"
+    max_interval_in_seconds = 300
+    max_staleness_prefix    = 100000
+  }
+}
+
+variable "cosmosdb_mongo_backup" {
+  description = "Backup configuration for the CosmosDB MongoDB account."
+  type = object({
+    type                = string
+    interval_in_minutes = optional(number, 240)
+    retention_in_hours  = optional(number, 8)
+    storage_redundancy  = optional(string, "Geo")
+  })
+  default = {
+    type                = "Periodic"
+    interval_in_minutes = 240
+    retention_in_hours  = 8
+    storage_redundancy  = "Geo"
+  }
+}
+
+variable "cosmosdb_mongo_capabilities" {
+  description = "List of MongoDB-specific capabilities to enable for the CosmosDB account."
+  type        = list(string)
+  default     = ["EnableMongo", "MongoDBv4.0", "mongoEnableDocLevelTTL"]
+}
+
+variable "cosmosdb_mongo_public_access" {
+  description = "Whether to enable public network access for the CosmosDB MongoDB account."
+  type        = bool
+  default     = true
+}
+
+variable "cosmosdb_mongo_ip_filter" {
+  description = "IP range filter for the CosmosDB MongoDB account. List of IP addresses or CIDR ranges."
+  type        = list(string)
+  default     = []
+}
+
+variable "cosmosdb_mongo_databases" {
+  description = "List of MongoDB databases to create in the CosmosDB account."
+  type = list(object({
+    name       = string
+    throughput = optional(number)
+    autoscale_settings = optional(object({
+      max_throughput = number
+    }))
+    collections = optional(list(object({
+      name       = string
+      shard_key  = optional(string)
+      throughput = optional(number)
+      autoscale_settings = optional(object({
+        max_throughput = number
+      }))
+      default_ttl_seconds = optional(number)
+      indexes = optional(list(object({
+        keys   = list(string)
+        unique = optional(bool, false)
+      })), [])
+    })), [])
+  }))
+  default = [
+    {
+      name       = "ai-mongo-data"
+      throughput = 400
+      collections = [
+        {
+          name                = "vector-embeddings"
+          shard_key           = "document_id"
+          throughput          = 400
+          default_ttl_seconds = null
+          indexes = [
+            {
+              keys   = ["embedding_model"]
+              unique = false
+            },
+            {
+              keys   = ["document_id"]
+              unique = true
+            }
+          ]
+        },
+        {
+          name                = "chat-sessions"
+          shard_key           = "user_id"
+          throughput          = 400
+          default_ttl_seconds = 2592000 # 30 days
+          indexes = [
+            {
+              keys   = ["session_id"]
+              unique = true
+            },
+            {
+              keys   = ["user_id", "created_at"]
+              unique = false
+            }
+          ]
+        },
+        {
+          name       = "knowledge-base"
+          shard_key  = "category"
+          throughput = 400
+          indexes = [
+            {
+              keys   = ["title"]
+              unique = false
+            },
+            {
+              keys   = ["category", "created_at"]
+              unique = false
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

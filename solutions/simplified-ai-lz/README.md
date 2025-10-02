@@ -10,7 +10,8 @@ The solution deploys the following Azure resources:
 - **AI Foundry**: Azure Cognitive Services account configured for AI services
 - **GPT Deployment**: OpenAI GPT-4o model deployment for AI workloads
 - **AI Project**: Project container for organizing AI assets and workflows
-- **CosmosDB**: NoSQL database for storing AI training data, model metadata, and inference logs
+- **CosmosDB SQL API**: NoSQL database for storing AI training data, model metadata, and inference logs
+- **CosmosDB MongoDB API** (Optional): MongoDB-compatible database for document-based AI workloads
 
 ## Prerequisites
 
@@ -78,6 +79,10 @@ terraform apply
 | `cosmosdb_name` | Name for CosmosDB account | string | "cosmosdb-ai-lz" | No |
 | `cosmosdb_consistency_policy` | Consistency policy for CosmosDB | object | Session consistency | No |
 | `cosmosdb_databases` | Database and container configuration | list(object) | AI data containers | No |
+| `enable_mongodb` | Deploy MongoDB API alongside SQL API | bool | false | No |
+| `cosmosdb_mongo_name` | Name for CosmosDB MongoDB account | string | "cosmosdb-mongo-ai-lz" | No |
+| `cosmosdb_mongo_capabilities` | MongoDB-specific capabilities | list(string) | ["EnableMongo", "MongoDBv4.0"] | No |
+| `cosmosdb_mongo_databases` | MongoDB database and collection config | list(object) | AI MongoDB collections | No |
 
 ### Outputs
 
@@ -91,6 +96,9 @@ The module provides the following outputs:
 - `cosmosdb_account_id`: ID of the CosmosDB account
 - `cosmosdb_account_endpoint`: CosmosDB connection endpoint
 - `cosmosdb_databases`: Information about created databases and containers
+- `cosmosdb_mongo_account_id`: ID of the CosmosDB MongoDB account (if enabled)
+- `cosmosdb_mongo_connection_string`: Primary MongoDB connection string (sensitive)
+- `cosmosdb_mongo_databases`: Information about created MongoDB databases and collections
 
 ## Usage Examples
 
@@ -103,6 +111,39 @@ location            = "East US 2"
 resource_group_name = "rg-ai-landing-zone"
 ```
 
+### MongoDB for AI Workloads
+
+The MongoDB API option is particularly useful for:
+
+- **Vector Embeddings**: Store and query high-dimensional vectors for similarity search
+- **Chat Applications**: Document-based storage for conversation history and session management
+- **Knowledge Bases**: Flexible schema for storing diverse content types and metadata
+- **Temporal Data**: Built-in TTL support for automatic data expiration
+- **RAG Applications**: Retrieval-Augmented Generation with flexible document storage
+
+Enable MongoDB with:
+
+```hcl
+enable_mongodb = true
+cosmosdb_mongo_databases = [
+  {
+    name = "ai-rag-system"
+    collections = [
+      {
+        name      = "knowledge-base"
+        shard_key = "category"
+        indexes = [
+          {
+            keys   = ["title", "content"]
+            unique = false
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
 ### Advanced Configuration
 
 ```hcl
@@ -113,7 +154,7 @@ disable_local_auth   = true  # Use Entra ID only
 gpt_capacity         = 10    # Higher capacity for production
 project_display_name = "Production AI Workloads"
 
-# CosmosDB for AI data storage
+# CosmosDB SQL API for traditional AI data storage
 cosmosdb_name = "mycompany-ai-data"
 cosmosdb_consistency_policy = {
   consistency_level = "Strong"
@@ -138,14 +179,53 @@ cosmosdb_databases = [
     ]
   }
 ]
+
+# Enable MongoDB API for document-based AI workloads
+enable_mongodb = true
+cosmosdb_mongo_name = "mycompany-ai-mongo"
+cosmosdb_mongo_capabilities = [
+  "EnableMongo",
+  "MongoDBv4.0",
+  "mongoEnableDocLevelTTL",
+  "EnableMongo16MBDocumentSupport"
+]
+cosmosdb_mongo_databases = [
+  {
+    name       = "ai-vectors"
+    throughput = 800
+    collections = [
+      {
+        name                = "embeddings"
+        shard_key           = "document_id"
+        throughput          = 800
+        indexes = [
+          {
+            keys   = ["embedding_model"]
+            unique = false
+          }
+        ]
+      },
+      {
+        name                = "chat-sessions"
+        shard_key           = "user_id"
+        default_ttl_seconds = 2592000  # 30 days
+        autoscale_settings = {
+          max_throughput = 4000
+        }
+      }
+    ]
+  }
+]
 ```
 
 ## Module Reference
 
-This solution uses the AI Foundry module from the tjs-scripts repository via GitHub source. The module is maintained separately and can be found at:
+This solution uses the AI Foundry and CosmosDB modules from the tjs-scripts repository via GitHub source. The modules are maintained separately and can be found at:
 
 ```
 github.com/tjsullivan1/tjs-scripts//terraform/modules/ai_foundry
+github.com/tjsullivan1/tjs-scripts//terraform/modules/cosmosdb
+github.com/tjsullivan1/tjs-scripts//terraform/modules/cosmosdb-mongo
 ```
 
 ## Security Considerations
