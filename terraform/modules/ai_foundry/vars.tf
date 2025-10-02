@@ -15,6 +15,11 @@ variable "sku_name" {
   default     = "S0"
 }
 
+variable "resource_group_id" {
+  description = "The id of the resource group where the AI Foundry resource will be deployed."
+  type = string
+}
+
 variable "disable_local_auth" {
   description = "Whether to disable local authentication (API key). Set to true for Entra ID only."
   type        = bool

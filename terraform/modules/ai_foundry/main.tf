@@ -13,7 +13,7 @@ terraform {
 resource "azapi_resource" "ai_foundry" {
   type                      = "Microsoft.CognitiveServices/accounts@2025-06-01"
   name                      = var.ai_foundry_name
-  parent_id                 = var.resource_group.id
+  parent_id                 = var.resource_group_id
   location                  = var.location
   schema_validation_enabled = false
 
