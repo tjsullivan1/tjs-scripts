@@ -15,7 +15,7 @@ module "ai_foundry" {
   source = "github.com/tjsullivan1/tjs-scripts//terraform/modules/ai_foundry"
 
   # Pass the resource group object to the module
-  resource_group = azurerm_resource_group.main
+  resource_group_id = azurerm_resource_group.main.id
   location       = var.location
 
   # AI Foundry configuration
