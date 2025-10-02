@@ -234,7 +234,7 @@ variable "cosmosdb_mongo_backup" {
 variable "cosmosdb_mongo_capabilities" {
   description = "List of MongoDB-specific capabilities to enable for the CosmosDB account."
   type        = list(string)
-  default     = ["EnableMongo", "MongoDBv4.0", "mongoEnableDocLevelTTL"]
+  default     = ["EnableMongo", "mongoEnableDocLevelTTL"]
 }
 
 variable "cosmosdb_mongo_public_access" {
