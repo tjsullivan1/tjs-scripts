@@ -1,5 +1,12 @@
 ########## Create AI Foundry resource
 ##########
+terraform {
+  required_providers {
+    azapi = {
+      source  = "azure/azapi"
+    }
+  }
+}
 
 ## Create the AI Foundry resource
 ##
