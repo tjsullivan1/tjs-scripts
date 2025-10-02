@@ -213,4 +213,16 @@ variable "databases" {
     ])
     error_message = "Shard key must be a valid MongoDB field name (alphanumeric and underscores, starting with letter or underscore)."
   }
+  validation {
+    condition = alltrue([
+      for db in var.databases : alltrue([
+        for collection in db.collections : alltrue([
+          for index in collection.indexes : 
+          # If collection is sharded and index is unique, the shard key must be included in the index
+          collection.shard_key == null || !index.unique || contains(index.keys, collection.shard_key)
+        ])
+      ])
+    ])
+    error_message = "Unique indexes on sharded collections must include the shard key. For example, if shard_key='user_id', then unique index keys must include 'user_id'."
+  }
 }

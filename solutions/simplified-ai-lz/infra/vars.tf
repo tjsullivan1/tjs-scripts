@@ -299,7 +299,7 @@ variable "cosmosdb_mongo_databases" {
           default_ttl_seconds = 2592000 # 30 days
           indexes = [
             {
-              keys   = ["session_id"]
+              keys   = ["user_id", "session_id"]
               unique = true
             },
             {

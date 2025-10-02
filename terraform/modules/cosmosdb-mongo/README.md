@@ -167,6 +167,48 @@ collections = [
 
 **Note**: The `_id` index is automatically created and doesn't need to be specified in your configuration.
 
+### Sharding Constraints
+
+When using sharded collections (collections with a `shard_key`), unique indexes must include the shard key field. This is a MongoDB requirement to ensure uniqueness across shards.
+
+**Correct sharded collection configuration:**
+```hcl
+collections = [
+  {
+    name      = "user-sessions"
+    shard_key = "user_id"
+    indexes = [
+      {
+        keys   = ["user_id", "session_id"]  # Includes shard key
+        unique = true
+      },
+      {
+        keys   = ["created_at"]             # Non-unique index (no restriction)
+        unique = false
+      }
+    ]
+  }
+]
+```
+
+**Incorrect configuration (will fail):**
+```hcl
+collections = [
+  {
+    name      = "user-sessions"
+    shard_key = "user_id"
+    indexes = [
+      {
+        keys   = ["session_id"]  # Missing shard key - will fail!
+        unique = true
+      }
+    ]
+  }
+]
+```
+
+The module includes validation to catch these configuration errors early during planning.
+
 ## Backup Strategies
 
 ### Periodic Backup (Default)
