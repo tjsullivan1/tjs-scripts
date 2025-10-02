@@ -35,7 +35,7 @@ Use Terraform modules to group reusable infrastructure components. For any resou
 
 ## 5. Provider Selection (AzureRM vs AzAPI)
 
-- **Use `azurerm` provider** for most scenarios – it offers high stability and covers the majority of Azure services
+- **Use `azurerm` provider** for most scenarios – it offers high stability and covers the majority of Azure services. Please ensure you are using features that are coming from version 4 or greater of the azurerm provider.
 - **Use `azapi` provider** only for cases where you need:
   - The very latest Azure features
   - A resource not yet supported in `azurerm`
