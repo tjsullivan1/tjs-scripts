@@ -1,0 +1,92 @@
+# Example Terraform variables file for CosmosDB module
+# Copy this to terraform.tfvars and customize for your deployment
+
+# Required variables
+name                = "my-cosmosdb-account"
+location            = "East US 2"
+resource_group_name = "rg-cosmosdb-example"
+
+# Optional variables - uncomment and modify as needed
+
+# Basic configuration
+# offer_type = "Standard"
+# kind       = "GlobalDocumentDB"
+
+# Performance and scaling
+# enable_free_tier                = false
+# enable_automatic_failover       = true
+# enable_multiple_write_locations = false
+
+# Network access
+# public_network_access_enabled = true
+# ip_range_filter               = "0.0.0.0/0"  # Allow all IPs (not recommended for production)
+
+# Consistency policy
+# consistency_policy = {
+#   consistency_level       = "BoundedStaleness"
+#   max_interval_in_seconds = 300
+#   max_staleness_prefix    = 100000
+# }
+
+# Geo-replication (additional regions)
+# geo_locations = [
+#   {
+#     location          = "West US 2"
+#     failover_priority = 1
+#     zone_redundant    = false
+#   }
+# ]
+
+# Backup configuration
+# backup = {
+#   type                = "Periodic"
+#   interval_in_minutes = 240
+#   retention_in_hours  = 8
+#   storage_redundancy  = "Geo"
+# }
+
+# Capabilities (uncomment as needed)
+# capabilities = [
+#   "EnableServerless",
+#   "EnableAggregationPipeline"
+# ]
+
+# Managed identity
+# identity = {
+#   type = "SystemAssigned"
+# }
+
+# Tags
+# tags = {
+#   Environment = "development"
+#   Project     = "example"
+#   Owner       = "team@company.com"
+# }
+
+# Database and container configuration
+# databases = [
+#   {
+#     name       = "example-db"
+#     throughput = 400
+#     containers = [
+#       {
+#         name               = "users"
+#         partition_key_path = "/userId"
+#         throughput        = 400
+#         default_ttl       = -1
+#         unique_key = [
+#           {
+#             paths = ["/email"]
+#           }
+#         ]
+#       },
+#       {
+#         name               = "orders"
+#         partition_key_path = "/customerId"
+#         autoscale_settings = {
+#           max_throughput = 4000
+#         }
+#       }
+#     ]
+#   }
+# ]
