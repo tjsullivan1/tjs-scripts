@@ -41,3 +41,4 @@ k8s-test*
 *client_creds.json
 token.json
 .vscode/
+tmp/
