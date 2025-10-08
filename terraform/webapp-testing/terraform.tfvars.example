@@ -1,0 +1,44 @@
+# Example variable values
+# Copy this file to terraform.tfvars and customize as needed
+
+# Basic Configuration
+location            = "canadacentral"
+resource_group_name = "rg-harness-webapps"
+
+# App Service Plan
+app_service_plan_name = "asp-harness"
+app_service_plan_sku  = "B1"
+
+# Web Apps Configuration
+web_app_count       = 3
+web_app_name_prefix = "wa-harness"
+
+# App Configuration
+https_only        = true
+always_on         = true
+create_prod_slot  = true
+
+# Runtime Stack (choose one or leave empty)
+dotnet_version = "8.0"
+# node_version   = "18-lts"
+# python_version = "3.11"
+
+# Docker Configuration (alternative to runtime stack)
+# Uncomment and configure for Docker deployment
+# docker_image = "nginx:latest"
+# docker_image = "httpd:alpine" 
+# docker_image = "node:18-alpine"
+# docker_image = "python:3.11-slim"
+
+# For private Docker registries
+# docker_registry_url      = "https://myregistry.azurecr.io"
+# docker_registry_username = "myregistry"
+# docker_registry_password = "your-registry-password"
+
+# Tags
+tags = {
+  Environment = "dev"
+  Project     = "harness"
+  ManagedBy   = "terraform"
+  Owner       = "your-team"
+}
