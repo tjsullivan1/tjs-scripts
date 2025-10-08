@@ -123,7 +123,7 @@ resource "azurerm_linux_web_app_slot" "prod" {
     worker_count        = 1
 
     # Health check
-    health_check_eviction_time_in_min = 0
+    # health_check_eviction_time_in_min = 0
 
     # Default documents
     default_documents = [
