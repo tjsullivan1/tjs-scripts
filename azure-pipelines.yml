@@ -1,4 +1,5 @@
 # Starter pipeline
+
 # Start with a minimal pipeline that you can customize to build and deploy your code.
 # Add steps that build, run tests, deploy, and more:
 # https://aka.ms/yaml
@@ -17,3 +18,16 @@ steps:
     echo Add other tasks to build, test, and deploy your project.
     echo See https://aka.ms/yaml
   displayName: 'Run a multi-line script'
+  
+- task: AzureRmWebAppDeployment@5
+  inputs:
+    ConnectionType: 'AzureRM'
+    azureSubscription: 'ME-MngEnvMCAP612337-tisulliv-1-Manual-Deploys(26101271-a10e-41ab-90ca-b7763d726966)'
+    appType: 'webAppContainer'
+    WebAppName: 'wa-harness-1'
+    deployToSlotOrASE: true
+    ResourceGroupName: 'rg-harness-webapps'
+    SlotName: 'staging'
+    DockerNamespace: 'tjsullivan1'
+    DockerRepository: 'simple-http-server'
+    DockerImageTag: 'latest'
