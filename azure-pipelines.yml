@@ -5,13 +5,15 @@ parameters:
 - name: appNumbers
   type: object
   default: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+- name: dockerRepo
+  type: string
+  default: 'test'
 
 variables:
   serviceConnection: 'ME-MngEnvMCAP612337-tisulliv-1-Manual-Deploys(26101271-a10e-41ab-90ca-b7763d726966)'
   rgName: 'rg-harness-webapps'
   slot: 'staging'
   dockerNamespace: 'tjsullivan1'
-  dockerRepo: 'simple-http-server'
   dockerTag: 'latest'
 
 stages:
