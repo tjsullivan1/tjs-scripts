@@ -1,33 +1,43 @@
-# Starter pipeline
+# azure-pipelines.yml
+trigger: none
 
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
+parameters:
+- name: appNumbers
+  type: object
+  default: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
 
-trigger:
-- master
+variables:
+  serviceConnection: 'ME-MngEnvMCAP612337-tisulliv-1-Manual-Deploys(26101271-a10e-41ab-90ca-b7763d726966)'
+  rgName: 'rg-harness-webapps'
+  slot: 'staging'
+  dockerNamespace: 'tjsullivan1'
+  dockerRepo: 'simple-http-server'
+  dockerTag: 'latest'
 
-pool:
-  vmImage: ubuntu-latest
-
-steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
-
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
-  
-- task: AzureRmWebAppDeployment@5
-  inputs:
-    ConnectionType: 'AzureRM'
-    azureSubscription: 'ME-MngEnvMCAP612337-tisulliv-1-Manual-Deploys(26101271-a10e-41ab-90ca-b7763d726966)'
-    appType: 'webAppContainer'
-    WebAppName: 'wa-harness-1'
-    deployToSlotOrASE: true
-    ResourceGroupName: 'rg-harness-webapps'
-    SlotName: 'staging'
-    DockerNamespace: 'tjsullivan1'
-    DockerRepository: 'simple-http-server'
-    DockerImageTag: 'latest'
+stages:
+- stage: Deploy
+  displayName: Deploy containers to 20 app slots
+  # throttle overall parallelism; raise/lower as needed
+  # (this applies to matrix strategy; for templated jobs, control via pool demands)
+  # For templated jobs, use 'dependsOn' or split into batches if you need stricter throttling.
+  jobs:
+  # expand into one job per app
+  - ${{ each n in parameters.appNumbers }}:
+    - job: Deploy_${{ n }}
+      displayName: Deploy wa-harness-${{ n }}
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+      - task: AzureRmWebAppDeployment@5
+        displayName: Deploy to wa-harness-${{ n }} (slot $(slot))
+        inputs:
+          ConnectionType: 'AzureRM'
+          azureSubscription: '$(serviceConnection)'
+          appType: 'webAppContainer'
+          WebAppName: 'wa-harness-${{ n }}'
+          deployToSlotOrASE: true
+          ResourceGroupName: '$(rgName)'
+          SlotName: '$(slot)'
+          DockerNamespace: '$(dockerNamespace)'
+          DockerRepository: '$(dockerRepo)'
+          DockerImageTag: '$(dockerTag)'
