@@ -41,5 +41,5 @@ stages:
           ResourceGroupName: '$(rgName)'
           SlotName: '$(slot)'
           DockerNamespace: '$(dockerNamespace)'
-          DockerRepository: '$(dockerRepo)'
+          DockerRepository: '${{ parameters.dockerRepo }}'
           DockerImageTag: '$(dockerTag)'
