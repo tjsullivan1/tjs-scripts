@@ -1,5 +1,6 @@
 # Variable files
 terraform.tfvars
+.env
 
 # Compiled files
 *.tfstate
