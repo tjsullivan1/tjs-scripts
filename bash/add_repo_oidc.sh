@@ -13,7 +13,7 @@ REPO_NAME="$ORG/$REPO"
 LOCATION="canadacentral"
 SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID
 PLATFORM_RG="rg-platform-dev"
-APP_NAME="gha-deploy"
+APP_NAME="tjs-gha-deploy"
 
 
 # Lookup existing app by display name
