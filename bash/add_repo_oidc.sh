@@ -7,10 +7,11 @@ echo "Usage: $0 <repo-name>"; exit 1
 fi
 
 
-REPO_NAME="$1"
+REPO="$1"
 ORG="tjsullivan1"
+REPO_NAME="$ORG/$REPO"
 LOCATION="canadacentral"
-SUBSCRIPTION_ID="<your-subscription-id>"
+SUBSCRIPTION_ID=$AZURE_SUBSCRIPTION_ID
 PLATFORM_RG="rg-platform-dev"
 APP_NAME="gha-deploy"
 
@@ -31,8 +32,7 @@ az role assignment create --assignee "$SP_ID" --role Contributor --scope "/subsc
 
 
 # Federated credential: environment:dev
-az ad app federated-credential create --id "$APP_ID" --parameters "$(jq -cn \
---arg org "$ORG" --arg repo "$REPO_NAME" '{
+az ad app federated-credential create --id "$APP_ID" --parameters "$(jq -cn --arg repo "$REPO_NAME" '{
 name: ("github-"+$repo+"-env-dev"),
 issuer: "https://token.actions.githubusercontent.com",
 subject: ("repo:"+$org+"/"+$repo+":environment:dev"),
@@ -41,8 +41,7 @@ audiences: ["api://AzureADTokenExchange"]
 
 
 # Federated credential: branch main
-az ad app federated-credential create --id "$APP_ID" --parameters "$(jq -cn \
---arg org "$ORG" --arg repo "$REPO_NAME" '{
+az ad app federated-credential create --id "$APP_ID" --parameters "$(jq -cn --arg repo "$REPO_NAME" '{
 name: ("github-"+$repo+"-main"),
 issuer: "https://token.actions.githubusercontent.com",
 subject: ("repo:"+$org+"/"+$repo+":ref:refs/heads/main"),
@@ -51,4 +50,4 @@ audiences: ["api://AzureADTokenExchange"]
 
 
 echo "Federated creds added and RG $PROJECT_RG prepared."
-echo "Next: create repo $ORG/$REPO_NAME (from template), push, and run workflows."
+echo "Next: create repo $REPO_NAME (from template), push, and run workflows."
