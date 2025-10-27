@@ -1,0 +1,45 @@
+# azure-pipelines.yml
+trigger: none
+
+parameters:
+- name: appNumbers
+  type: object
+  default: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+- name: dockerRepo
+  type: string
+  default: 'test'
+
+variables:
+  serviceConnection: 'ME-MngEnvMCAP612337-tisulliv-1-Manual-Deploys(26101271-a10e-41ab-90ca-b7763d726966)'
+  rgName: 'rg-harness-webapps'
+  slot: 'staging'
+  dockerNamespace: 'tjsullivan1'
+  dockerTag: 'latest'
+
+stages:
+- stage: Deploy
+  displayName: Deploy containers to 20 app slots
+  # throttle overall parallelism; raise/lower as needed
+  # (this applies to matrix strategy; for templated jobs, control via pool demands)
+  # For templated jobs, use 'dependsOn' or split into batches if you need stricter throttling.
+  jobs:
+  # expand into one job per app
+  - ${{ each n in parameters.appNumbers }}:
+    - job: Deploy_${{ n }}
+      displayName: Deploy wa-harness-${{ n }}
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+      - task: AzureRmWebAppDeployment@5
+        displayName: Deploy to wa-harness-${{ n }} (slot $(slot))
+        inputs:
+          ConnectionType: 'AzureRM'
+          azureSubscription: '$(serviceConnection)'
+          appType: 'webAppContainer'
+          WebAppName: 'wa-harness-${{ n }}'
+          deployToSlotOrASE: true
+          ResourceGroupName: '$(rgName)'
+          SlotName: '$(slot)'
+          DockerNamespace: '$(dockerNamespace)'
+          DockerRepository: '${{ parameters.dockerRepo }}'
+          DockerImageTag: '$(dockerTag)'

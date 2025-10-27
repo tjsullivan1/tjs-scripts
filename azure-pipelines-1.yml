@@ -1,0 +1,60 @@
+# azure-pipelines.yml
+trigger: none
+
+parameters:
+- name: appNumbers
+  type: object
+  default: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+- name: dockerRepository
+  type: string
+  default: 'test'
+- name: dockerTag
+  type: string
+  default: 'latest'
+- name: dockerNamespace
+  type: string
+  default: 'tjsullivan1'
+
+variables:
+  serviceConnection: 'ME-MngEnvMCAP612337-tisulliv-1-Manual-Deploys(26101271-a10e-41ab-90ca-b7763d726966)'
+  rgName: 'rg-harness-webapps'
+  slot: 'staging'
+
+stages:
+- stage: Deploy
+  displayName: Deploy via az cli
+  jobs:
+  - ${{ each n in parameters.appNumbers }}:
+    - job: SetContainer_${{ n }}
+      displayName: Set image for wa-harness-${{ n }}
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+      - task: AzureCLI@2
+        displayName: az webapp config container set
+        inputs:
+          azureSubscription: '$(serviceConnection)'
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            set -euo pipefail
+            IMAGE="${{ parameters.dockerNamespace }}/${{ parameters.dockerRepository }}:${{ parameters.dockerTag }}"
+            echo "Setting image ${IMAGE} on wa-harness-${{ n }} (slot $(slot))"
+            az webapp config container set \
+              --resource-group "$(rgName)" \
+              --name "wa-harness-${{ n }}" \
+              --slot "$(slot)" \
+              --docker-custom-image-name "${IMAGE}"
+
+            # optional: if using a private registry (Docker Hub creds not needed for public images):
+            # az webapp config container set \
+            #   --resource-group "$(rgName)" \
+            #   --name "wa-harness-${{ n }}" \
+            #   --slot "$(slot)" \
+            #   --docker-custom-image-name "${IMAGE}" \
+            #   --docker-registry-server-url "https://index.docker.io" \
+            #   --docker-registry-server-user "$(dockerUser)" \
+            #   --docker-registry-server-password "$(dockerPassword)"
+
+            # optional: bounce the slot so it pulls immediately
+            az webapp restart --resource-group "$(rgName)" --name "wa-harness-${{ n }}" --slot "$(slot)"

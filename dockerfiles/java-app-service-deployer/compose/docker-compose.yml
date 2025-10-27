@@ -1,0 +1,90 @@
+x-common-env: &common-env
+  AZURE_CLIENT_ID: ${AZURE_CLIENT_ID}
+  AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET}
+  AZURE_TENANT_ID: ${AZURE_TENANT_ID}
+  AZURE_SUBSCRIPTION_ID: ${AZURE_SUBSCRIPTION_ID}
+  SLOT_NAME: staging
+  RESOURCE_GROUP: rg-harness-webapps
+  DOCKER_NAMESPACE: tjsullivan1
+  DOCKER_REPOSITORY: simple-http-server
+  DOCKER_TAG: latest
+
+# optional for private images
+#  DOCKER_REGISTRY_URL: https://index.docker.io
+#  DOCKER_REGISTRY_USER: ${DOCKER_USER}
+#  DOCKER_REGISTRY_PASS: ${DOCKER_PASS}
+
+services:
+  # ---------- GROUP 1 ----------
+  # loads extra env from group1.env
+  group1-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-1
+
+  group3-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-2
+
+  group4-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-3
+
+  group5-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-4
+
+  group6-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-5
+  
+  group7-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-6
+    
+  group8-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-8
+
+  group9-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-9
+    
+  group10-updater:
+    image: tjsullivan1/java-app-service-deployer:latest
+    deploy:
+      replicas: 1
+    environment:
+      <<: *common-env
+      APP_NAME: wa-harness-10
