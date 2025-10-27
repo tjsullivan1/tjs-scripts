@@ -40,7 +40,7 @@ output "web_app_staging_slot_ids" {
 
 output "service_plan_id" {
   description = "ID of the App Service Plan"
-  value       = data.azurerm_service_plan.main.id
+  value       = azurerm_service_plan.main.id
 }
 
 output "resource_group_name" {
