@@ -3,9 +3,12 @@ data "azurerm_resource_group" "main" {
   name = var.resource_group_name
 }
 
-data "azurerm_service_plan" "main" {
-  name                = var.app_service_plan_name
+resource "azurerm_service_plan" "main" {
+  name                = "asp-"${var.web_app_name_prefix}"
   resource_group_name = var.resource_group_name
+  location            = var.location
+  os_type             = "Linux"
+  sku_name            = "P2v3"
 }
 
 # Web Apps
@@ -15,7 +18,7 @@ resource "azurerm_linux_web_app" "main" {
   name                = "${var.web_app_name_prefix}-${count.index + 1}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  service_plan_id     = data.azurerm_service_plan.main.id
+  service_plan_id     = azurerm_service_plan.main.id
 
   # Security settings
   https_only                                     = var.https_only
