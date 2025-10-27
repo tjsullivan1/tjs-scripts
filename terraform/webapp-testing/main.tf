@@ -47,7 +47,7 @@ resource "azurerm_linux_web_app" "main" {
     worker_count        = 1
 
     # Health check
-    health_check_eviction_time_in_min = 0
+    # health_check_eviction_time_in_min = 0
 
     # Default documents
     default_documents = [
@@ -86,10 +86,10 @@ resource "azurerm_linux_web_app" "main" {
 }
 
 # Deployment Slots
-resource "azurerm_linux_web_app_slot" "prod" {
-  count = var.create_prod_slot ? var.web_app_count : 0
+resource "azurerm_linux_web_app_slot" "staging" {
+  count = var.create_staging_slot ? var.web_app_count : 0
 
-  name           = "prod"
+  name           = "staging"
   app_service_id = azurerm_linux_web_app.main[count.index].id
 
   # Security settings (inherit from main app)
@@ -104,7 +104,7 @@ resource "azurerm_linux_web_app_slot" "prod" {
   # App settings (inherit from main app but can be customized)
   app_settings = merge(var.tags, {
     "WEBSITE_RUN_FROM_PACKAGE" = "1"
-    "SLOT_NAME"                = "prod"
+    "SLOT_NAME"                = "staging"
   })
 
   tags = var.tags

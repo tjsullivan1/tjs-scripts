@@ -105,8 +105,8 @@ variable "docker_registry_password" {
   sensitive   = true
 }
 
-variable "create_prod_slot" {
-  description = "Whether to create a 'prod' deployment slot for each web app"
+variable "create_staging_slot" {
+  description = "Whether to create a 'staging' deployment slot for each web app"
   type        = bool
   default     = true
 }
