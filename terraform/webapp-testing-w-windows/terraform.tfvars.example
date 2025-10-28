@@ -1,0 +1,36 @@
+# Azure Windows Web Apps Configuration Example
+# Copy this file to terraform.tfvars and customize for your environment
+
+# Azure Location
+location = "canadacentral"
+
+# Resource Group (must already exist)
+resource_group_name = "rg-harness-webapps"
+
+# Web App Configuration
+web_app_count       = 3
+web_app_name_prefix = "wa-harness"
+
+# Runtime Stack - Choose ONE option below
+# Option 1: .NET (default)
+dotnet_version = "v6.0"  # Options: v6.0, v7.0, v8.0
+
+# Option 2: Node.js (comment out dotnet_version above if using Node.js)
+# node_version = "18-lts"  # Options: 18-lts, 20-lts
+
+# Security and Performance Settings
+https_only = true
+always_on  = true
+
+# Deployment Slots
+create_staging_slot = true
+create_canary_slot  = false  # Optional: Enable for canary deployments
+create_qa_slot      = false  # Optional: Enable for QA testing
+
+# Tags
+tags = {
+  Environment = "dev"
+  Project     = "harness"
+  ManagedBy   = "terraform"
+  Owner       = "your-name"
+}
