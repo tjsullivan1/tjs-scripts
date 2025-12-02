@@ -35,3 +35,10 @@ resource "azurerm_mssql_database" "db" {
   name      = local.sql_db_name
   server_id = azurerm_mssql_server.server.id
 }
+
+resource "azurerm_user_assigned_identity" "user_identity" {
+  name                = local.uami_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+}
+

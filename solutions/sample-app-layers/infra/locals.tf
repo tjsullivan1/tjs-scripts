@@ -14,6 +14,7 @@ locals {
   key_vault_name       = "kv-${substr(local.name_prefix, 0, 14)}-${random_string.suffix.result}"
   web_app_name_prefix  = "${local.name_prefix}-${random_string.suffix.result}"
   vnet_name            = "vnet-${local.name_prefix}-${random_string.suffix.result}"
+  uami_name            = "uami-${local.name_prefix}-${random_string.suffix.result}"
 
 }
 
