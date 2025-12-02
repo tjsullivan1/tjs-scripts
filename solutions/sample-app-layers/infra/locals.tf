@@ -12,7 +12,9 @@ locals {
   sql_db_name      = "db-${local.name_prefix}"
   storage_account_name = "st${replace(lower(local.name_prefix), "-", "")}${random_string.suffix.result}"
   key_vault_name       = "kv-${substr(local.name_prefix, 0, 14)}-${random_string.suffix.result}"
-  web_app_name_prefix  = "${local.name_prefix}-${random_string.suffix.result}"
+  web_app_name = "wa-fe-${local.name_prefix}-${random_string.suffix.result}"
+  api_name  = "wa-api-${local.name_prefix}-${random_string.suffix.result}"\
+  asp_name  = "asp-${local.name_prefix}-${random_string.suffix.result}"
   vnet_name            = "vnet-${local.name_prefix}-${random_string.suffix.result}"
   uami_name            = "uami-${local.name_prefix}-${random_string.suffix.result}"
 
