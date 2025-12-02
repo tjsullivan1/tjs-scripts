@@ -18,7 +18,7 @@ resource "azurerm_windows_web_app" "frontend" {
   // Setup the app service with a user assigned identity
   identity {
     type = "UserAssigned"
-    identity_ids = azurerm_user_assigned_identity.user_identity.id
+    identity_ids = [ azurerm_user_assigned_identity.user_identity.id ]
   }
 
   site_config {
@@ -60,7 +60,7 @@ resource "azurerm_windows_web_app" "api" {
   // Setup the app service with a user assigned identity
   identity {
     type = "UserAssigned"
-    identity_ids = azurerm_user_assigned_identity.user_identity.id
+    identity_ids = [ azurerm_user_assigned_identity.user_identity.id ]
   }
 
   site_config {
