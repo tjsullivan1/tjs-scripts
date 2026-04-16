@@ -1,0 +1,127 @@
+### Quick smoke test for the AI Gateway
+### Requires REST Client extension (VS Code) or similar .http runner
+### Set environment variables or replace placeholders below
+
+@gateway = {{$dotenv APIM_GATEWAY_URL}}
+@alphaKey = {{$dotenv ALPHA_SUBSCRIPTION_KEY}}
+@bravoKey = {{$dotenv BRAVO_SUBSCRIPTION_KEY}}
+@charlieKey = {{$dotenv CHARLIE_SUBSCRIPTION_KEY}}
+@model = gpt-4.1
+
+### -----------------------------------------------------------------------
+### Auth: Acquire JWT tokens (run these FIRST)
+### -----------------------------------------------------------------------
+
+### Acquire Team Alpha token
+# @name alphaAuth
+POST https://login.microsoftonline.com/{{$dotenv TENANT_ID}}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id={{$dotenv ALPHA_CLIENT_ID}}&client_secret={{$dotenv ALPHA_CLIENT_SECRET}}&scope={{$dotenv API_AUDIENCE}}/.default
+
+###
+
+### Acquire Team Bravo token
+# @name bravoAuth
+POST https://login.microsoftonline.com/{{$dotenv TENANT_ID}}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id={{$dotenv BRAVO_CLIENT_ID}}&client_secret={{$dotenv BRAVO_CLIENT_SECRET}}&scope={{$dotenv API_AUDIENCE}}/.default
+
+###
+
+### Acquire Team Charlie token
+# @name charlieAuth
+POST https://login.microsoftonline.com/{{$dotenv TENANT_ID}}/oauth2/v2.0/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&client_id={{$dotenv CHARLIE_CLIENT_ID}}&client_secret={{$dotenv CHARLIE_CLIENT_SECRET}}&scope={{$dotenv API_AUDIENCE}}/.default
+
+###
+
+### -----------------------------------------------------------------------
+### 1. Chat completion — Team Alpha (Standard tier)
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{model}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{alphaKey}}
+Authorization: Bearer {{alphaAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "What is Azure API Management?" }
+  ],
+  "max_tokens": 200
+}
+
+### -----------------------------------------------------------------------
+### 2. Chat completion — Team Bravo (Premium tier)
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{model}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{bravoKey}}
+Authorization: Bearer {{bravoAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Explain token-based billing for AI APIs." }
+  ],
+  "max_tokens": 200
+}
+
+### -----------------------------------------------------------------------
+### 3. Repeat request — should hit semantic cache (fast response)
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{model}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{alphaKey}}
+Authorization: Bearer {{alphaAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "What is Azure API Management?" }
+  ],
+  "max_tokens": 200
+}
+
+### -----------------------------------------------------------------------
+### 4. Test rate limiting — send many requests to hit Standard tier limit
+###    (Run this repeatedly to see 429 responses with remaining-tokens header)
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{model}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{alphaKey}}
+Authorization: Bearer {{alphaAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "user", "content": "Write a 500-word essay about cloud computing." }
+  ],
+  "max_tokens": 500
+}
+
+### -----------------------------------------------------------------------
+### 5. Chat completion — Team Charlie (Standard tier)
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{model}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{charlieKey}}
+Authorization: Bearer {{charlieAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "What is Microsoft AI Foundry?" }
+  ],
+  "max_tokens": 200
+}
+
+### -----------------------------------------------------------------------
+### 6. List models (GET endpoint test)
+### -----------------------------------------------------------------------
+GET {{gateway}}/openai/models?api-version=2024-12-01-preview
+api-key: {{alphaKey}}
+Authorization: Bearer {{alphaAuth.response.body.access_token}}

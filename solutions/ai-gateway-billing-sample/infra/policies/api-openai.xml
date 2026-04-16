@@ -1,0 +1,41 @@
+<policies>
+    <inbound>
+        <base />
+        <set-backend-service id="set-chat-backend" backend-id="${chat_backend_id}" />
+        <!-- Validate Entra ID JWT -->
+        <validate-azure-ad-token tenant-id="${tenant_id}" output-token-variable-name="jwt">
+            <audiences>
+                <audience>${api_audience}</audience>
+                <audience>${api_client_id}</audience>
+            </audiences>
+        </validate-azure-ad-token>
+        <!-- Emit token metrics to Application Insights -->
+        <llm-emit-token-metric namespace="${metric_namespace}">
+            <dimension name="API ID" />
+            <dimension name="Subscription ID" />
+            <dimension name="User ID" />
+            <dimension name="Operation ID" />
+            <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+        </llm-emit-token-metric>
+        <!-- Semantic cache lookup (uses embeddings backend with managed identity) -->
+        <llm-semantic-cache-lookup
+            score-threshold="${cache_score_threshold}"
+            embeddings-backend-id="${embeddings_backend_id}"
+            embeddings-backend-auth="system-assigned"
+            ignore-system-messages="true"
+            max-message-count="10">
+            <vary-by>@(context.Subscription.Id)</vary-by>
+        </llm-semantic-cache-lookup>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+        <!-- Store response in semantic cache -->
+        <llm-semantic-cache-store duration="${cache_duration}" />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

@@ -1,0 +1,154 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# AI Gateway Billing Dashboard\n\nThis workbook shows token usage, cost projections, and consumer activity from the AI Gateway APIM policies.\n\n**Metric source**: `llm-emit-token-metric` policy → Application Insights custom metrics (namespace: `AIGateway`)"
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "time-range",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 3600000 },
+                { "durationMs": 14400000 },
+                { "durationMs": 43200000 },
+                { "durationMs": 86400000 },
+                { "durationMs": 172800000 },
+                { "durationMs": 604800000 },
+                { "durationMs": 2592000000 }
+              ]
+            },
+            "value": {
+              "durationMs": 86400000
+            }
+          }
+        ]
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Token Usage by Consumer"
+      },
+      "name": "section-usage"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| summarize TotalTokens = sum(value) by SubscriptionId, bin(timestamp, 1h)\n| render timechart",
+        "size": 0,
+        "title": "Token Usage Over Time (by Consumer)",
+        "timeContext": {
+          "durationMs": 0,
+          "endTime": null,
+          "createdTime": null,
+          "isInitialTime": false,
+          "grain": 1,
+          "useDashboardTimeRange": false
+        },
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "chart-usage-over-time"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| summarize TotalTokens = sum(value) by SubscriptionId\n| top 10 by TotalTokens desc",
+        "size": 0,
+        "title": "Top Consumers by Token Usage",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "barchart"
+      },
+      "name": "chart-top-consumers"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Cost Estimation"
+      },
+      "name": "section-cost"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let cost_per_1k_prompt = 0.01;\nlet cost_per_1k_completion = 0.03;\ncustomMetrics\n| where name startswith \"AIGateway\"\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    TokenType = name\n| summarize Tokens = sum(value) by SubscriptionId, TokenType, bin(timestamp, 1d)\n| extend EstimatedCost = case(\n    TokenType has \"Prompt\", Tokens / 1000.0 * cost_per_1k_prompt,\n    TokenType has \"Completion\", Tokens / 1000.0 * cost_per_1k_completion,\n    0.0)\n| summarize\n    TotalTokens = sum(Tokens),\n    TotalCost = sum(EstimatedCost)\n    by SubscriptionId, bin(timestamp, 1d)\n| order by timestamp desc, TotalCost desc",
+        "size": 0,
+        "title": "Daily Cost Estimate per Consumer",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "TotalCost",
+              "formatter": 0,
+              "numberFormat": {
+                "unit": 0,
+                "options": { "style": "currency", "currency": "USD" }
+              }
+            }
+          ]
+        }
+      },
+      "name": "table-daily-cost"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Operations & Client Details"
+      },
+      "name": "section-operations"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend\n    OperationId = tostring(customDimensions[\"Operation ID\"]),\n    ApiId = tostring(customDimensions[\"API ID\"])\n| summarize TotalTokens = sum(value) by ApiId, OperationId\n| order by TotalTokens desc",
+        "size": 0,
+        "title": "Tokens by API Operation",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "table-operations"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend ClientIP = tostring(customDimensions[\"Client IP\"])\n| summarize\n    Requests = dcount(timestamp),\n    TotalTokens = sum(value)\n    by ClientIP\n| order by TotalTokens desc",
+        "size": 0,
+        "title": "Usage by Client IP",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "table-client-ip"
+    }
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

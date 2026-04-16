@@ -1,0 +1,31 @@
+# Populate these values for your environment.
+# Copy this file to terraform.tfvars and fill in the blanks.
+
+subscription_id       = "00000000-0000-0000-0000-000000000000"
+apim_publisher_email  = "you@example.com"
+
+# Optional overrides (defaults shown):
+# location                    = "eastus2"
+# name_prefix                 = "aigateway"
+# apim_sku                    = "Developer"
+# apim_publisher_name         = "AI Gateway Demo"
+# chat_model_name             = "gpt-4.1"
+# chat_model_version          = "2025-04-14"
+# chat_model_sku              = "GlobalStandard"
+# chat_model_capacity         = 50
+# embeddings_model_name       = "text-embedding-3-small"
+# embeddings_model_version    = "1"
+# embeddings_model_capacity   = 120
+# standard_tokens_per_minute  = 1000
+# standard_token_quota        = 5000
+# premium_tokens_per_minute   = 50000
+# premium_token_quota         = 250000
+# cache_score_threshold       = 0.05
+# cache_duration_seconds      = 600
+# metric_namespace            = "AIGateway"
+# cost_per_1k_prompt_tokens   = 0.01
+# cost_per_1k_completion_tokens = 0.03
+
+# Key Vault (optional — stores consumer credentials for test tooling)
+# enable_key_vault            = false
+# key_vault_reader_object_ids = ["00000000-0000-0000-0000-000000000000"]

@@ -1,0 +1,98 @@
+// =============================================================================
+// AI Gateway Billing — Sample KQL Queries
+// =============================================================================
+// These queries run against the Application Insights / Log Analytics workspace
+// where APIM emits llm-emit-token-metric data.
+// Metric namespace: "AIGateway" (configurable via Terraform variable)
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// 1. Total tokens per consumer per day
+// ---------------------------------------------------------------------------
+customMetrics
+| where name startswith "AIGateway"
+| extend SubscriptionId = tostring(customDimensions["Subscription ID"])
+| summarize
+    TotalTokens = sum(value)
+    by SubscriptionId, bin(timestamp, 1d)
+| order by timestamp desc, TotalTokens desc
+
+// ---------------------------------------------------------------------------
+// 2. Cost estimation per consumer (prompt + completion tokens)
+// ---------------------------------------------------------------------------
+let cost_per_1k_prompt = 0.01;
+let cost_per_1k_completion = 0.03;
+customMetrics
+| where name startswith "AIGateway"
+| extend
+    SubscriptionId = tostring(customDimensions["Subscription ID"]),
+    TokenType = name
+| summarize Tokens = sum(value) by SubscriptionId, TokenType, bin(timestamp, 1d)
+| extend EstimatedCost = case(
+    TokenType has "Prompt", Tokens / 1000.0 * cost_per_1k_prompt,
+    TokenType has "Completion", Tokens / 1000.0 * cost_per_1k_completion,
+    0.0)
+| summarize
+    TotalTokens = sum(Tokens),
+    TotalCost = sum(EstimatedCost)
+    by SubscriptionId, bin(timestamp, 1d)
+| order by timestamp desc, TotalCost desc
+
+// ---------------------------------------------------------------------------
+// 3. Top consumers by total token usage (last 7 days)
+// ---------------------------------------------------------------------------
+customMetrics
+| where name startswith "AIGateway"
+| where timestamp > ago(7d)
+| extend SubscriptionId = tostring(customDimensions["Subscription ID"])
+| summarize TotalTokens = sum(value) by SubscriptionId
+| top 10 by TotalTokens desc
+
+// ---------------------------------------------------------------------------
+// 4. Usage trend over time (hourly buckets)
+// ---------------------------------------------------------------------------
+customMetrics
+| where name startswith "AIGateway"
+| where timestamp > ago(24h)
+| extend SubscriptionId = tostring(customDimensions["Subscription ID"])
+| summarize Tokens = sum(value) by SubscriptionId, bin(timestamp, 1h)
+| render timechart
+
+// ---------------------------------------------------------------------------
+// 5. Tokens by API operation
+// ---------------------------------------------------------------------------
+customMetrics
+| where name startswith "AIGateway"
+| where timestamp > ago(7d)
+| extend
+    OperationId = tostring(customDimensions["Operation ID"]),
+    ApiId = tostring(customDimensions["API ID"])
+| summarize TotalTokens = sum(value) by ApiId, OperationId
+| order by TotalTokens desc
+
+// ---------------------------------------------------------------------------
+// 6. Requests by client IP
+// ---------------------------------------------------------------------------
+customMetrics
+| where name startswith "AIGateway"
+| where timestamp > ago(7d)
+| extend ClientIP = tostring(customDimensions["Client IP"])
+| summarize
+    Requests = dcount(timestamp),
+    TotalTokens = sum(value)
+    by ClientIP
+| order by TotalTokens desc
+
+// ---------------------------------------------------------------------------
+// 7. Cache hit rate analysis (check for reduced backend calls)
+// ---------------------------------------------------------------------------
+// Semantic cache hits bypass the backend entirely, so compare total APIM
+// requests vs backend requests in the diagnostic logs.
+requests
+| where timestamp > ago(24h)
+| where url has "/openai/"
+| summarize
+    TotalRequests = count(),
+    CacheHits = countif(duration < 100),   // cached responses are very fast
+    BackendCalls = countif(duration >= 100)
+| extend CacheHitRate = round(100.0 * CacheHits / TotalRequests, 1)

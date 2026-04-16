@@ -1,0 +1,23 @@
+<policies>
+    <inbound>
+        <base />
+        <llm-token-limit
+            tokens-per-minute="${tokens_per_minute}"
+            token-quota="${token_quota}"
+            token-quota-period="Hourly"
+            counter-key="@(context.Subscription.Id)"
+            estimate-prompt-tokens="true"
+            remaining-tokens-header-name="remaining-tokens"
+            remaining-quota-tokens-header-name="remaining-quota-tokens"
+            tokens-consumed-header-name="consumed-tokens" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

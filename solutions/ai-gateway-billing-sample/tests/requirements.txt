@@ -1,0 +1,4 @@
+httpx>=0.27
+python-dotenv>=1.0
+azure-identity>=1.17
+azure-keyvault-secrets>=4.8
