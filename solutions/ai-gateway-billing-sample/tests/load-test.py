@@ -31,12 +31,13 @@ class ConsumerConfig:
     name: str
     subscription_key: str
     bearer_token: str
-    request_count: int = 10
+    request_count: int = 20
 
 
 @dataclass
 class RequestResult:
     consumer: str
+    model: str
     status_code: int
     duration_ms: float
     prompt_tokens: int = 0
@@ -71,7 +72,7 @@ async def send_request(
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt},
         ],
-        "max_tokens": 100,
+        "max_completion_tokens": 200,
     }
 
     start = time.monotonic()
@@ -90,6 +91,7 @@ async def send_request(
 
         result = RequestResult(
             consumer=consumer.name,
+            model=model,
             status_code=resp.status_code,
             duration_ms=duration_ms,
             remaining_tokens=resp.headers.get("remaining-tokens", ""),
@@ -135,7 +137,7 @@ PROMPTS = [
 async def run_consumer(
     client: httpx.AsyncClient,
     gateway_url: str,
-    model: str,
+    models: list[str],
     consumer: ConsumerConfig,
     concurrency: int,
 ) -> list[RequestResult]:
@@ -144,6 +146,7 @@ async def run_consumer(
     async def limited_request(i: int) -> RequestResult:
         async with semaphore:
             prompt = PROMPTS[i % len(PROMPTS)]
+            model = models[i % len(models)]
             return await send_request(client, gateway_url, model, consumer, prompt)
 
     tasks = [limited_request(i) for i in range(consumer.request_count)]
@@ -182,33 +185,54 @@ def print_report(report: LoadTestReport) -> None:
         print(f"  Max duration:     {max(report.durations):.0f} ms")
 
 
+def print_model_breakdown(results: list[RequestResult]) -> None:
+    """Print per-model summary across all consumers."""
+    by_model: dict[str, list[RequestResult]] = {}
+    for r in results:
+        by_model.setdefault(r.model, []).append(r)
+
+    print(f"\n{'=' * 60}")
+    print("  Per-Model Breakdown")
+    print(f"{'=' * 60}")
+    for model, model_results in sorted(by_model.items()):
+        ok = sum(1 for r in model_results if r.status_code == 200)
+        limited = sum(1 for r in model_results if r.status_code == 429)
+        tokens = sum(r.total_tokens for r in model_results)
+        print(f"  {model:25s}  {len(model_results):3d} reqs  "
+              f"{ok:3d} ok  {limited:3d} 429  {tokens:>6,} tokens")
+
+
 async def main(args: argparse.Namespace) -> None:
+    models = [m.strip() for m in args.models.split(",")]
+
     # Acquire JWT tokens upfront (client_credentials flow)
     print("Acquiring JWT tokens...")
     consumer_defs = [
-        ("Team Alpha (Standard)", args.alpha_key, args.alpha_client_id, args.alpha_client_secret),
-        ("Team Bravo (Premium)", args.bravo_key, args.bravo_client_id, args.bravo_client_secret),
-        ("Team Charlie (Standard)", args.charlie_key, args.charlie_client_id, args.charlie_client_secret),
+        ("Team Alpha (Standard)", args.alpha_key, args.alpha_client_id, args.alpha_client_secret, args.requests * 2),
+        ("Team Bravo (Premium)", args.bravo_key, args.bravo_client_id, args.bravo_client_secret, args.requests),
+        ("Team Charlie (Standard)", args.charlie_key, args.charlie_client_id, args.charlie_client_secret, args.requests),
     ]
 
     scope = args.api_audience.rstrip("/") + "/.default"
     consumers = []
-    for name, sub_key, client_id, client_secret in consumer_defs:
+    for name, sub_key, client_id, client_secret, req_count in consumer_defs:
         token = acquire_token(args.tenant_id, client_id, client_secret, scope)
         consumers.append(
             ConsumerConfig(
                 name=name,
                 subscription_key=sub_key,
                 bearer_token=token,
-                request_count=args.requests,
+                request_count=req_count,
             )
         )
         print(f"  ✓ {name}")
 
     print(f"\nAI Gateway Load Test")
     print(f"  Gateway:     {args.gateway_url}")
-    print(f"  Model:       {args.model}")
-    print(f"  Requests:    {args.requests} per consumer")
+    print(f"  Models:      {', '.join(models)}")
+    print(f"  Requests:    Alpha={consumers[0].request_count}, "
+          f"Bravo={consumers[1].request_count}, "
+          f"Charlie={consumers[2].request_count}")
     print(f"  Concurrency: {args.concurrency}")
     print()
 
@@ -216,15 +240,19 @@ async def main(args: argparse.Namespace) -> None:
         all_results = await asyncio.gather(
             *[
                 run_consumer(
-                    client, args.gateway_url, args.model, c, args.concurrency
+                    client, args.gateway_url, models, c, args.concurrency
                 )
                 for c in consumers
             ]
         )
 
+    all_flat = []
     for consumer, results in zip(consumers, all_results):
         report = build_report(consumer.name, results)
         print_report(report)
+        all_flat.extend(results)
+
+    print_model_breakdown(all_flat)
 
     print(f"\n{'=' * 60}")
     print("  Load test complete.")
@@ -281,8 +309,8 @@ if __name__ == "__main__":
     parser.add_argument("--charlie-client-id", default=os.getenv("CHARLIE_CLIENT_ID"), help="Team Charlie SP client ID")
     parser.add_argument("--charlie-client-secret", default=os.getenv("CHARLIE_CLIENT_SECRET"), help="Team Charlie SP client secret")
     parser.add_argument("--key-vault", default=os.getenv("KEY_VAULT_NAME"), help="Azure Key Vault name to fetch missing secrets")
-    parser.add_argument("--model", default="gpt-4.1", help="Model deployment name (default: gpt-4.1)")
-    parser.add_argument("--requests", type=int, default=10, help="Number of requests per consumer (default: 10)")
+    parser.add_argument("--models", default="gpt-4.1,gpt-4o-mini,gpt-5.1-chat", help="Comma-separated model deployment names (default: gpt-4.1,gpt-4o-mini,gpt-5.1-chat)")
+    parser.add_argument("--requests", type=int, default=10, help="Base request count per consumer — Alpha gets 2x to demonstrate rate limiting (default: 10)")
     parser.add_argument("--concurrency", type=int, default=3, help="Max concurrent requests per consumer (default: 3)")
 
     args = parser.parse_args()
