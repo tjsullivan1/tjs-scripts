@@ -85,6 +85,38 @@ Earlier iterations of this demo used `azapi_update_resource` + `time_sleep` as a
 workaround, but setting the attribute directly on the resource is cleaner and
 avoids eventual consistency issues.
 
+## Decision 8: Ignoring Model Version and Capacity Drift
+
+**Choice**: All `azurerm_cognitive_deployment` resources include:
+
+```hcl
+lifecycle {
+  ignore_changes = [sku[0].capacity, model[0].version, rai_policy_name]
+}
+```
+
+**Rationale**: Azure may auto-upgrade model versions (e.g., from a preview to a
+GA release), adjust provisioned capacity, or assign a default RAI (Responsible
+AI) content filtering policy behind the scenes. Without `ignore_changes`,
+Terraform would detect these as drift and propose replacing or updating the
+deployment on every `terraform plan` — potentially causing downtime or data loss
+(deployment replacement destroys and recreates the resource). By ignoring these
+attributes:
+
+- **`model[0].version`**: Terraform won't force-replace a deployment just
+  because Azure promoted it to a newer version. You can still update the
+  version intentionally by changing the variable and removing the ignore
+  temporarily, or by using `terraform apply -replace`.
+- **`sku[0].capacity`**: Allows manual capacity scaling in the portal or via
+  Azure CLI without Terraform reverting it on the next apply.
+- **`rai_policy_name`**: Azure automatically assigns a default content filtering
+  policy (e.g., `Microsoft.DefaultV2`) to deployments. Since we don't set this
+  in Terraform, it would show as drift (`"Microsoft.DefaultV2" -> null`) on
+  every plan without the ignore.
+
+This is especially important for the `additional_chat_models` map, where the
+version values are initial deployment targets — not pinned constraints.
+
 ## Alternatives Considered
 
 | Alternative | Why Not |
@@ -94,3 +126,46 @@ avoids eventual consistency issues.
 | Multiple AI backends with load balancing | Distracts from billing focus; available as separate sample |
 | Consumption SKU for APIM | Limited policy support; can't use developer portal |
 | Bicep instead of Terraform | User's existing solutions use Terraform consistently |
+
+---
+
+## Decision 9: Full Request/Response Body Logging
+
+**Choice**: The APIM diagnostic logs both frontend and backend request/response
+bodies (up to 8 KB each) to Application Insights.
+
+> **⚠️ WARNING: THIS CONFIGURATION IS FOR DEMONSTRATION PURPOSES ONLY.**
+>
+> **Logging request and response bodies means that full user prompts and AI
+> completions are captured in Application Insights.** In a production
+> environment, this has **significant privacy, compliance, and security
+> implications**, including but not limited to:
+>
+> - **PII / sensitive data exposure**: User prompts may contain personal
+>   information, proprietary business data, or regulated content (HIPAA, GDPR,
+>   CCPA, etc.) that must not be stored in logs.
+> - **Data residency**: Logged content is stored in the Log Analytics workspace
+>   region and subject to that region's data governance rules.
+> - **Retention and access control**: Anyone with read access to the Application
+>   Insights resource or Log Analytics workspace can query full prompt/response
+>   history.
+> - **Cost**: Body logging at scale significantly increases Application Insights
+>   ingestion volume and cost.
+>
+> **For production deployments**, disable body logging by removing the
+> `frontend_request`, `frontend_response`, `backend_request`, and
+> `backend_response` blocks from the diagnostic resource — or limit them to
+> header-only logging. Consider dedicated, access-controlled audit pipelines
+> (e.g., Event Hub → secured storage) if prompt logging is required for
+> compliance.
+
+**Rationale**: For this demo, full body logging enables direct inspection of
+prompts and completions via KQL in Log Analytics, making it easy to verify
+routing, caching, and billing behavior. Example query:
+
+```kql
+AppRequests
+| extend requestBody = parse_json(tostring(Properties["Request-Body"]))
+| extend prompt = tostring(requestBody.messages[-1].content)
+| project TimeGenerated, Name, prompt, ResultCode
+```

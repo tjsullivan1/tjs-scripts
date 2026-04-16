@@ -79,7 +79,7 @@ resource "azurerm_cognitive_deployment" "chat" {
   }
 
   lifecycle {
-    ignore_changes = [sku[0].capacity, model[0].version]
+    ignore_changes = [sku[0].capacity, model[0].version, rai_policy_name]
   }
 }
 
@@ -101,7 +101,31 @@ resource "azurerm_cognitive_deployment" "embeddings" {
   depends_on = [azurerm_cognitive_deployment.chat]
 
   lifecycle {
-    ignore_changes = [sku[0].capacity, model[0].version]
+    ignore_changes = [sku[0].capacity, model[0].version, rai_policy_name]
+  }
+}
+
+resource "azurerm_cognitive_deployment" "additional_chat" {
+  for_each = var.additional_chat_models
+
+  name                 = each.key
+  cognitive_account_id = azurerm_cognitive_account.foundry.id
+
+  model {
+    format  = "OpenAI"
+    name    = each.key
+    version = each.value.version
+  }
+
+  sku {
+    name     = each.value.sku
+    capacity = each.value.capacity
+  }
+
+  depends_on = [azurerm_cognitive_deployment.embeddings]
+
+  lifecycle {
+    ignore_changes = [sku[0].capacity, model[0].version, rai_policy_name]
   }
 }
 
@@ -166,6 +190,24 @@ resource "azurerm_api_management_diagnostic" "appinsights" {
   log_client_ip             = true
   http_correlation_protocol = "W3C"
   verbosity                 = "information"
+
+  # Log request and response bodies for demo/debugging purposes.
+  # ⚠️  See docs/architecture.md Decision 9 for privacy implications.
+  frontend_request {
+    body_bytes = 8192
+  }
+
+  frontend_response {
+    body_bytes = 8192
+  }
+
+  backend_request {
+    body_bytes = 8192
+  }
+
+  backend_response {
+    body_bytes = 8192
+  }
 }
 
 # =============================================================================
