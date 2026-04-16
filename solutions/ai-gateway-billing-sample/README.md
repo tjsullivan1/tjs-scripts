@@ -12,7 +12,9 @@ per-consumer **billing/chargeback metering**, **semantic caching**, and
 │              │     │                                        │     │  (AIServices)         │
 │  Team Alpha ─────► │  Product: AI-Standard  (1K TPM)       │     │                       │
 │  Team Bravo ─────► │  Product: AI-Premium   (50K TPM)      ├────►│  gpt-4.1              │
-│  Team Charlie───► │                                        │     │  text-embedding-3-small│
+│  Team Charlie───► │                                        │     │  gpt-4o-mini          │
+│              │     │                                        │     │  gpt-5.1-chat         │
+│              │     │                                        │     │  text-embedding-3-small│
 │              │     │  Policies:                             │     └──────────────────────┘
 └──────────────┘     │   validate-azure-ad-token              │
                      │   llm-token-limit (per product)        │     ┌──────────────────────┐

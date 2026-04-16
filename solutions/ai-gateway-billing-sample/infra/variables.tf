@@ -66,6 +66,23 @@ variable "chat_model_capacity" {
   default     = 50
 }
 
+variable "additional_chat_models" {
+  description = "Additional chat model deployments. Each entry creates a new deployment in AI Foundry."
+  type = map(object({
+    version  = string
+    sku      = optional(string, "GlobalStandard")
+    capacity = optional(number, 50)
+  }))
+  default = {
+    "gpt-4o-mini" = {
+      version = "2024-07-18"
+    }
+    "gpt-5.1-chat" = {
+      version = "2025-06-01"
+    }
+  }
+}
+
 variable "embeddings_model_name" {
   description = "Model name for the embeddings deployment (used by semantic cache)."
   type        = string

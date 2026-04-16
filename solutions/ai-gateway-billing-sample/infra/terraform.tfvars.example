@@ -13,6 +13,10 @@ apim_publisher_email  = "you@example.com"
 # chat_model_version          = "2025-04-14"
 # chat_model_sku              = "GlobalStandard"
 # chat_model_capacity         = 50
+# additional_chat_models      = {
+#   "gpt-4o-mini"  = { version = "2024-07-18" }
+#   "gpt-5.1-chat" = { version = "2025-06-01" }
+# }
 # embeddings_model_name       = "text-embedding-3-small"
 # embeddings_model_version    = "1"
 # embeddings_model_capacity   = 120
