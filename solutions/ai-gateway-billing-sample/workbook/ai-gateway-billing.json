@@ -291,7 +291,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nrequests\n| where url has \"/openai/\"\n| extend\n    StatusBucket = case(\n        resultCode startswith \"2\", \"2xx Success\",\n        resultCode startswith \"4\", \"4xx Client Error\",\n        resultCode startswith \"5\", \"5xx Server Error\",\n        strcat(\"Other (\", resultCode, \")\")),\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| summarize Count = count() by StatusBucket, bin(timestamp, 1h)\n| render timechart",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nrequests\n| where url has \"/openai/\"\n| extend\n    StatusBucket = case(\n        resultCode startswith \"2\", \"2xx Success\",\n        resultCode startswith \"4\", \"4xx Client Error\",\n        resultCode startswith \"5\", \"5xx Server Error\",\n        strcat(\"Other (\", resultCode, \")\")),\n    SubscriptionId = tostring(customDimensions[\"Subscription Name\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| summarize Count = count() by StatusBucket, bin(timestamp, 1h)\n| render timechart",
         "size": 0,
         "title": "Response Status Over Time",
         "timeContextFromParameter": "TimeRange",
