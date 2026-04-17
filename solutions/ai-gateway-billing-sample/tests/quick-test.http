@@ -9,6 +9,7 @@
 @model1 = gpt-4.1
 @model2 = gpt-4o-mini
 @model3 = gpt-5.1-chat
+@gemini = gemini-2.5-flash
 
 ### -----------------------------------------------------------------------
 ### Auth: Acquire JWT tokens (run these FIRST)
@@ -159,3 +160,36 @@ Content-Type: application/json
 GET {{gateway}}/openai/models?api-version=2024-12-01-preview
 api-key: {{alphaKey}}
 Authorization: Bearer {{alphaAuth.response.body.access_token}}
+
+### -----------------------------------------------------------------------
+### 9. Gemini — Team Alpha on gemini-2.5-flash (Standard tier)
+###    Requires enable_gemini = true in Terraform config
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{gemini}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{alphaKey}}
+Authorization: Bearer {{alphaAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "What is Google Gemini?" }
+  ],
+  "max_completion_tokens": 200
+}
+
+### -----------------------------------------------------------------------
+### 10. Gemini — Team Bravo on gemini-2.5-flash (Premium tier, cross-provider)
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{gemini}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{bravoKey}}
+Authorization: Bearer {{bravoAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "system", "content": "You are a helpful assistant." },
+    { "role": "user", "content": "Compare Azure OpenAI and Google Gemini for enterprise use." }
+  ],
+  "max_completion_tokens": 200
+}

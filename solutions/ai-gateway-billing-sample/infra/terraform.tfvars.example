@@ -33,3 +33,9 @@ apim_publisher_email  = "you@example.com"
 # Key Vault (optional — stores consumer credentials for test tooling)
 # enable_key_vault            = false
 # key_vault_reader_object_ids = ["00000000-0000-0000-0000-000000000000"]
+
+# Gemini (optional — adds Google Gemini as a second AI backend)
+# Requires: gcloud auth application-default login
+# enable_gemini               = false
+# gcp_project_id              = "my-gcp-project-id"
+# gemini_models               = ["gemini-2.5-flash"]

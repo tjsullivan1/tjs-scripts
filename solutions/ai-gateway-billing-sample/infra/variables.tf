@@ -183,6 +183,33 @@ variable "cache_duration_seconds" {
 }
 
 # -----------------------------------------------------------------------------
+# Gemini (Google AI)
+# -----------------------------------------------------------------------------
+
+variable "enable_gemini" {
+  description = "Enable Google Gemini backend via the Google AI Generative Language API."
+  type        = bool
+  default     = false
+}
+
+variable "gcp_project_id" {
+  description = "Google Cloud project ID for Gemini API resources. Required when enable_gemini = true."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.enable_gemini || length(var.gcp_project_id) > 0
+    error_message = "gcp_project_id is required when enable_gemini is true."
+  }
+}
+
+variable "gemini_models" {
+  description = "Gemini model names to route through the gateway. Requests for these models are sent to the Google AI backend."
+  type        = list(string)
+  default     = ["gemini-2.5-flash"]
+}
+
+# -----------------------------------------------------------------------------
 # Billing / Metrics
 # -----------------------------------------------------------------------------
 
@@ -210,6 +237,10 @@ variable "model_pricing" {
     "gpt-5.1-chat" = {
       prompt_per_1k     = 0.00125
       completion_per_1k = 0.01
+    }
+    "gemini-2.5-flash" = {
+      prompt_per_1k     = 0.00015
+      completion_per_1k = 0.0006
     }
   }
 }

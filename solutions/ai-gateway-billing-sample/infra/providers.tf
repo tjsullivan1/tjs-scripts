@@ -18,6 +18,12 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    # Google provider for Gemini API resources (API key, enabled services).
+    # Auth via `gcloud auth application-default login` — same pattern as az login.
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 6.14"
+    }
   }
 }
 
@@ -29,3 +35,9 @@ provider "azurerm" {
 provider "azapi" {}
 
 provider "azuread" {}
+
+provider "google" {
+  project               = var.enable_gemini ? var.gcp_project_id : null
+  billing_project       = var.enable_gemini ? var.gcp_project_id : null
+  user_project_override = var.enable_gemini
+}

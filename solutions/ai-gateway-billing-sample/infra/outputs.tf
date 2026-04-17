@@ -111,6 +111,6 @@ output "resource_group_name" {
 # =============================================================================
 
 output "key_vault_name" {
-  description = "Key Vault name (empty if Key Vault is disabled)."
-  value       = var.enable_key_vault ? azurerm_key_vault.this[0].name : ""
+  description = "Key Vault name."
+  value       = azurerm_key_vault.this.name
 }

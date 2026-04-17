@@ -1,8 +1,8 @@
 # AI Gateway Billing Sample
 
-Azure API Management as an **AI Gateway** in front of Microsoft AI Foundry, with
-per-consumer **billing/chargeback metering**, **semantic caching**, and
-**token rate limiting**.
+Azure API Management as an **AI Gateway** in front of Microsoft AI Foundry and
+(optionally) Google Gemini, with per-consumer **billing/chargeback metering**,
+**semantic caching**, and **token rate limiting**.
 
 ## Architecture
 
@@ -31,7 +31,7 @@ per-consumer **billing/chargeback metering**, **semantic caching**, and
 | **Per-consumer billing** | KQL queries + Azure Monitor Workbook aggregate metrics by subscription (consumer) for chargeback with per-model cost estimation |
 | **Token rate limiting** | `llm-token-limit` enforces TPM and hourly quotas per APIM product (Standard vs Premium) |
 | **Semantic caching** | `llm-semantic-cache-lookup/store` deduplicates similar prompts using an embeddings backend |
-| **Model routing** | This sample routes to a subset of models in a single AI Foundry instance. APIM's `llm-*` policies are provider-agnostic — additional backends can route to OpenAI, Google Gemini, Amazon Bedrock, or any OpenAI-compatible endpoint |
+| **Model routing** | Requests are routed to AI Foundry or Google Gemini based on the model name in the URL path. Gemini models use the Google AI OpenAI-compatible endpoint; all others use AI Foundry with managed identity auth |
 | **JWT authentication** | `validate-azure-ad-token` validates Entra ID tokens — each consumer has a service principal |
 
 ## Prerequisites
@@ -39,10 +39,11 @@ per-consumer **billing/chargeback metering**, **semantic caching**, and
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.9
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) — logged in (`az login`)
 - An Azure subscription with permissions to create:
-  - Resource groups, Cognitive Services (AI Foundry), API Management
+  - Resource groups, Cognitive Services (AI Foundry), API Management, Key Vault
   - Entra ID app registrations (requires Application Administrator or equivalent)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python package runner
 - [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) VS Code extension (optional, for `.http` tests)
+- *(Gemini only)* [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) — logged in (`gcloud auth application-default login`)
 
 ## Quick Start
 
@@ -140,9 +141,11 @@ uv run load-test.py --requests 20 --concurrency 5
 | APIM Logger + Diagnostics | API-level App Insights diagnostic with custom metrics enabled |
 | APIM Platform Diagnostic Setting | Sends GatewayLogs, audit logs, and platform metrics to Log Analytics |
 | Entra ID App Registrations (×4) | API audience + 3 consumer service principals with passwords |
-| RBAC Role Assignments | APIM managed identity → Foundry; consumer SPs → API app |
+| RBAC Role Assignments | APIM managed identity → Foundry (chat + embeddings); APIM → Key Vault |
+| Key Vault | Stores Gemini API key (Key Vault-backed APIM named value); optionally stores consumer test credentials |
 | Azure Monitor Workbook | Billing dashboard with per-model cost estimation (auto-deployed) |
-| Key Vault *(optional)* | Stores consumer credentials for test tooling |
+| *(Gemini only)* Google AI API Key | API key for Gemini, stored in Key Vault |
+| *(Gemini only)* APIM Gemini Backend | Routes Gemini model requests to Google AI's OpenAI-compatible endpoint |
 
 ## APIM Policy Stack
 
@@ -153,11 +156,13 @@ Product Policy (Standard or Premium)
   └─ llm-token-limit (TPM + hourly quota per subscription)
 
 API Policy (openai-gateway)
-  ├─ set-backend-service → foundry-chat
-  ├─ validate-azure-ad-token (Entra ID JWT)
   ├─ set-variable (extract model deployment name from URL)
+  ├─ choose (model-based backend routing)
+  │   ├─ Gemini models → set-backend-service → gemini-chat + URL rewrite
+  │   └─ All others   → set-backend-service → foundry-chat + managed identity auth
+  ├─ validate-azure-ad-token (Entra ID JWT)
   ├─ llm-emit-token-metric (App Insights custom metrics + Model dimension)
-  └─ llm-semantic-cache-lookup/store (embeddings backend)
+  └─ llm-semantic-cache-lookup/store (Foundry models only; partitioned by model)
 ```
 
 ## Cost Estimate
@@ -186,20 +191,20 @@ terraform destroy
 ai-gateway-billing-sample/
 ├── README.md                        # This file
 ├── infra/
-│   ├── main.tf                      # All resources
+│   ├── main.tf                      # All resources (Azure + conditional GCP)
 │   ├── variables.tf                 # Input variables with validation
 │   ├── outputs.tf                   # Endpoints, keys, credentials
-│   ├── providers.tf                 # azurerm, azapi, azuread providers
+│   ├── providers.tf                 # azurerm, azapi, azuread, google providers
 │   ├── terraform.tfvars.example     # Example variable values
 │   └── policies/
-│       ├── api-openai.xml           # API-level: backend, JWT, metrics, cache
+│       ├── api-openai.xml           # API-level: routing, JWT, metrics, cache
 │       ├── product-standard.xml     # Standard tier token limits
 │       └── product-premium.xml      # Premium tier token limits
 ├── workbook/
 │   ├── ai-gateway-billing.json      # Azure Monitor Workbook template
 │   └── sample-queries.kql           # Standalone KQL queries
 ├── tests/
-│   ├── quick-test.http              # REST Client smoke tests
+│   ├── quick-test.http              # REST Client smoke tests (incl. Gemini)
 │   ├── load-test.py                 # Python multi-consumer load simulator
 │   ├── pyproject.toml               # Python dependencies (uv sync)
 │   └── requirements.txt             # Python dependencies (pip fallback)

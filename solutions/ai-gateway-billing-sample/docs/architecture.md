@@ -80,13 +80,10 @@ is valuable but orthogonal to billing/metering. Keeping routing simple keeps
 the demo focused and the policy XML readable. The sophisticated routing policy
 exists as a separate reference in the `tjs-apim-test` environment.
 
-> **Note on multi-provider routing**: This sample routes to a subset of models
-> hosted in a single AI Foundry instance, but APIM's `llm-*` policies are
-> provider-agnostic. By adding additional backends and conditional
-> `set-backend-service` rules, the same gateway pattern can route to any
-> OpenAI-compatible endpoint — including OpenAI directly, Google Gemini,
-> Amazon Bedrock, or self-hosted models. The billing, rate-limiting, and
-> caching policies apply regardless of the backend provider.
+> **Note on multi-provider routing**: This sample now demonstrates multi-provider
+> routing with Google Gemini as a second backend (see Decision 12). The same
+> pattern can be extended to route to OpenAI directly, Amazon Bedrock, or any
+> OpenAI-compatible endpoint by adding additional backends and routing rules.
 
 ## Note: AI Foundry Project Management
 
@@ -249,3 +246,59 @@ GET https://prices.azure.com/api/retail/prices?$filter=productName eq 'Azure Ope
 This sample uses static rates for simplicity. A production system could call
 the Retail Prices API on a schedule (e.g., daily Azure Function) and update
 the pricing datatable in the workbook or a Log Analytics custom table.
+
+## Decision 12: Multi-Provider Routing (Google Gemini)
+
+**Choice**: Add Google Gemini as an optional second backend via the Google AI
+Generative Language API's OpenAI-compatible endpoint, gated by `enable_gemini`.
+
+**Rationale**: Demonstrates that APIM's `llm-*` policies are truly
+provider-agnostic. The same billing, rate-limiting, and metering pipeline works
+for both Azure AI Foundry and Google Gemini without modification to the metric
+dimensions or workbook queries.
+
+**Backend routing**: The APIM policy extracts the model deployment name from the
+URL path and routes to the appropriate backend:
+- Models listed in `gemini_models` → `gemini-chat` backend
+  (Google AI `generativelanguage.googleapis.com/v1beta/openai`)
+- All other models → `foundry-chat` backend (Azure AI Foundry)
+
+**Auth patterns**:
+- **Foundry**: Managed identity (`authentication-managed-identity` in policy,
+  `Cognitive Services OpenAI User` RBAC). No API keys stored.
+- **Gemini**: API key stored in Key Vault, referenced via Key Vault-backed APIM
+  named value. APIM's managed identity has `Key Vault Secrets User` role.
+
+**Request normalization for Gemini**: The Google AI OpenAI-compatible endpoint
+expects `/v1/chat/completions` with `model` in the request body. The APIM
+policy rewrites the Azure-style path (`/deployments/{model}/chat/completions`)
+to `/v1/chat/completions`, strips the `api-version` query parameter, and
+injects the `model` field into the JSON body.
+
+**Semantic cache**: Disabled for Gemini requests because the embeddings backend
+is hosted on AI Foundry. Cache is now partitioned by both subscription and model
+to prevent cross-model contamination. A Gemini embeddings backend could be added
+later to enable caching for Gemini requests.
+
+## Decision 13: Foundry Managed Identity Auth (No API Key)
+
+**Choice**: Switch the Foundry chat backend from API key authentication to
+managed identity, matching the pattern already used by the embeddings backend.
+
+**Rationale**: Eliminates a stored secret (Foundry API key in APIM named value)
+and aligns with zero-trust best practices. The APIM managed identity already had
+`Cognitive Services OpenAI User` RBAC on the Foundry account (for embeddings);
+the same role is sufficient for chat completions. This reduces the secret surface
+to just the Gemini API key (which must be an API key since Google AI doesn't
+support Azure managed identities).
+
+## Decision 14: Key Vault for Backend Credentials
+
+**Choice**: Key Vault is always deployed (not optional). Backend API keys
+(currently just Gemini) are stored as Key Vault secrets and referenced via
+Key Vault-backed APIM named values.
+
+**Rationale**: This is the production-recommended pattern for APIM secrets. APIM's
+managed identity reads secrets at runtime without Terraform needing to pass raw
+key values into APIM named values. The Key Vault also continues to optionally
+store consumer test credentials (gated by `enable_key_vault`).

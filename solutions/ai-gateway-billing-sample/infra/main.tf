@@ -160,6 +160,47 @@ resource "azapi_resource" "foundry_project" {
 }
 
 # =============================================================================
+# Google AI — Gemini API (conditional on enable_gemini)
+# =============================================================================
+
+# Enable the Generative Language API in the GCP project
+resource "google_project_service" "gemini" {
+  count = var.enable_gemini ? 1 : 0
+
+  project = var.gcp_project_id
+  service = "generativelanguage.googleapis.com"
+
+  disable_on_destroy = false
+}
+
+# Enable the API Keys API (required to create API keys via Terraform)
+resource "google_project_service" "apikeys" {
+  count = var.enable_gemini ? 1 : 0
+
+  project = var.gcp_project_id
+  service = "apikeys.googleapis.com"
+
+  disable_on_destroy = false
+}
+
+# API key for Gemini (restricted to generative language API)
+resource "google_apikeys_key" "gemini" {
+  count = var.enable_gemini ? 1 : 0
+
+  name         = "gemini-api-key"
+  display_name = "Gemini API Key"
+  project      = var.gcp_project_id
+
+  restrictions {
+    api_targets {
+      service = "generativelanguage.googleapis.com"
+    }
+  }
+
+  depends_on = [google_project_service.gemini, google_project_service.apikeys]
+}
+
+# =============================================================================
 # API Management
 # =============================================================================
 
@@ -292,7 +333,7 @@ resource "azapi_update_resource" "openai_diagnostic_metrics" {
 # RBAC — APIM Managed Identity → Foundry
 # =============================================================================
 
-# Allows APIM to call embeddings via managed identity
+# Allows APIM to call Foundry (chat + embeddings) via managed identity
 resource "azurerm_role_assignment" "apim_foundry_openai_user" {
   scope                = azurerm_cognitive_account.foundry.id
   role_definition_name = "Cognitive Services OpenAI User"
@@ -427,23 +468,10 @@ resource "azuread_app_role_assignment" "team_charlie" {
 }
 
 # =============================================================================
-# APIM — Named Values
-# =============================================================================
-
-resource "azurerm_api_management_named_value" "foundry_api_key" {
-  name                = "foundry-api-key"
-  resource_group_name = azurerm_resource_group.this.name
-  api_management_name = azurerm_api_management.this.name
-  display_name        = "foundry-api-key"
-  value               = azurerm_cognitive_account.foundry.primary_access_key
-  secret              = true
-}
-
-# =============================================================================
 # APIM — Backends
 # =============================================================================
 
-# Chat backend — Foundry OpenAI-compatible endpoint (API key auth)
+# Chat backend — Foundry OpenAI-compatible endpoint (managed identity auth)
 resource "azurerm_api_management_backend" "chat" {
   name                = "foundry-chat"
   resource_group_name = azurerm_resource_group.this.name
@@ -451,18 +479,10 @@ resource "azurerm_api_management_backend" "chat" {
   protocol            = "http"
   url                 = "${azurerm_cognitive_account.foundry.endpoint}openai"
 
-  credentials {
-    header = {
-      "api-key" = "{{foundry-api-key}}"
-    }
-  }
-
   tls {
     validate_certificate_chain = true
     validate_certificate_name  = true
   }
-
-  depends_on = [azurerm_api_management_named_value.foundry_api_key]
 }
 
 # Embeddings backend — for semantic cache (managed identity auth)
@@ -477,6 +497,30 @@ resource "azurerm_api_management_backend" "embeddings" {
     validate_certificate_chain = true
     validate_certificate_name  = true
   }
+}
+
+# Gemini backend — Google AI OpenAI-compatible endpoint (API key auth via Key Vault)
+resource "azurerm_api_management_backend" "gemini" {
+  count = var.enable_gemini ? 1 : 0
+
+  name                = "gemini-chat"
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+  protocol            = "http"
+  url                 = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+  credentials {
+    header = {
+      "Authorization" = "Bearer {{gemini-api-key}}"
+    }
+  }
+
+  tls {
+    validate_certificate_chain = true
+    validate_certificate_name  = true
+  }
+
+  depends_on = [azurerm_api_management_named_value.gemini_api_key]
 }
 
 # =============================================================================
@@ -603,6 +647,9 @@ resource "azurerm_api_management_api_policy" "openai" {
   xml_content = templatefile("${path.module}/policies/api-openai.xml", {
     chat_backend_id       = azurerm_api_management_backend.chat.name
     embeddings_backend_id = azurerm_api_management_backend.embeddings.name
+    gemini_backend_id     = var.enable_gemini ? azurerm_api_management_backend.gemini[0].name : ""
+    gemini_models_csv     = var.enable_gemini ? join(", ", [for m in var.gemini_models : "\"${m}\""]) : ""
+    enable_gemini         = var.enable_gemini
     metric_namespace      = var.metric_namespace
     cache_score_threshold = var.cache_score_threshold
     cache_duration        = var.cache_duration_seconds
@@ -642,12 +689,10 @@ resource "azurerm_api_management_product_policy" "premium" {
 }
 
 # =============================================================================
-# Key Vault (optional) — stores consumer credentials for test tooling
+# Key Vault — stores Gemini API key + optional consumer credentials for tests
 # =============================================================================
 
 resource "azurerm_key_vault" "this" {
-  count = var.enable_key_vault ? 1 : 0
-
   name                       = "kv-${local.name}"
   resource_group_name        = azurerm_resource_group.this.name
   location                   = azurerm_resource_group.this.location
@@ -662,22 +707,56 @@ resource "azurerm_key_vault" "this" {
 
 # Deployer gets Secrets Officer so Terraform can write secrets
 resource "azurerm_role_assignment" "kv_deployer_secrets_officer" {
-  count = var.enable_key_vault ? 1 : 0
-
-  scope                = azurerm_key_vault.this[0].id
+  scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets Officer"
   principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# APIM managed identity gets Secrets User to read Key Vault-backed named values
+resource "azurerm_role_assignment" "kv_apim_secrets_user" {
+  scope                = azurerm_key_vault.this.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_api_management.this.identity[0].principal_id
 }
 
 # Additional readers (e.g., a developer running tests from a different identity)
 resource "azurerm_role_assignment" "kv_reader" {
   for_each = var.enable_key_vault ? toset(var.key_vault_reader_object_ids) : toset([])
 
-  scope                = azurerm_key_vault.this[0].id
+  scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = each.value
 }
 
+# Gemini API key stored in Key Vault
+resource "azurerm_key_vault_secret" "gemini_api_key" {
+  count = var.enable_gemini ? 1 : 0
+
+  name         = "gemini-api-key"
+  value        = google_apikeys_key.gemini[0].key_string
+  key_vault_id = azurerm_key_vault.this.id
+
+  depends_on = [azurerm_role_assignment.kv_deployer_secrets_officer]
+}
+
+# APIM named value backed by Key Vault secret
+resource "azurerm_api_management_named_value" "gemini_api_key" {
+  count = var.enable_gemini ? 1 : 0
+
+  name                = "gemini-api-key"
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+  display_name        = "gemini-api-key"
+  secret              = true
+
+  value_from_key_vault {
+    secret_id = azurerm_key_vault_secret.gemini_api_key[0].versionless_id
+  }
+
+  depends_on = [azurerm_role_assignment.kv_apim_secrets_user]
+}
+
+# Optional consumer test secrets
 locals {
   kv_secrets = var.enable_key_vault ? {
     "team-alpha-client-id"       = azuread_application.team_alpha.client_id
@@ -697,7 +776,7 @@ resource "azurerm_key_vault_secret" "this" {
 
   name         = each.key
   value        = each.value
-  key_vault_id = azurerm_key_vault.this[0].id
+  key_vault_id = azurerm_key_vault.this.id
 
   depends_on = [azurerm_role_assignment.kv_deployer_secrets_officer]
 }

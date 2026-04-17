@@ -309,7 +309,7 @@ if __name__ == "__main__":
     parser.add_argument("--charlie-client-id", default=os.getenv("CHARLIE_CLIENT_ID"), help="Team Charlie SP client ID")
     parser.add_argument("--charlie-client-secret", default=os.getenv("CHARLIE_CLIENT_SECRET"), help="Team Charlie SP client secret")
     parser.add_argument("--key-vault", default=os.getenv("KEY_VAULT_NAME"), help="Azure Key Vault name to fetch missing secrets")
-    parser.add_argument("--models", default="gpt-4.1,gpt-4o-mini,gpt-5.1-chat", help="Comma-separated model deployment names (default: gpt-4.1,gpt-4o-mini,gpt-5.1-chat)")
+    parser.add_argument("--models", default="gpt-4.1,gpt-4o-mini,gpt-5.1-chat,gemini-2.5-flash", help="Comma-separated model deployment names (default: gpt-4.1,gpt-4o-mini,gpt-5.1-chat,gemini-2.5-flash)")
     parser.add_argument("--requests", type=int, default=10, help="Base request count per consumer — Alpha gets 2x to demonstrate rate limiting (default: 10)")
     parser.add_argument("--concurrency", type=int, default=3, help="Max concurrent requests per consumer (default: 3)")
 

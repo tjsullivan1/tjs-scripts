@@ -1,15 +1,14 @@
 <policies>
     <inbound>
         <base />
-        <set-backend-service id="set-chat-backend" backend-id="${chat_backend_id}" />
-        <!-- Validate Entra ID JWT -->
+        <!-- Validate Entra ID JWT (before any backend routing or body mutation) -->
         <validate-azure-ad-token tenant-id="${tenant_id}" output-token-variable-name="jwt">
             <audiences>
                 <audience>${api_audience}</audience>
                 <audience>${api_client_id}</audience>
             </audiences>
         </validate-azure-ad-token>
-        <!-- Extract model deployment name from URL path for metric dimension -->
+        <!-- Extract model deployment name from URL path for routing + metrics -->
         <set-variable name="model-deployment" value="@{
             var path = context.Request.Url.Path;
             var marker = "deployments/";
@@ -21,6 +20,41 @@
             }
             return "unknown";
         }" />
+        <!-- Route to backend based on model name -->
+        <choose>
+%{ if enable_gemini ~}
+            <when condition="@(new [] { ${gemini_models_csv} }.Contains((string)context.Variables["model-deployment"]))">
+                <!-- Gemini backend: rewrite URL, set Google API key auth -->
+                <set-backend-service id="set-gemini-backend" backend-id="${gemini_backend_id}" />
+                <set-variable name="is-gemini" value="true" />
+                <!-- Rewrite Azure-style path to Gemini OpenAI-compatible path -->
+                <set-variable name="gemini-operation" value="@{
+                    var path = context.Request.Url.Path;
+                    var marker = "deployments/";
+                    var idx = path.IndexOf(marker);
+                    if (idx >= 0) {
+                        var rest = path.Substring(idx + marker.Length);
+                        var slash = rest.IndexOf('/');
+                        return slash >= 0 ? rest.Substring(slash + 1) : "";
+                    }
+                    return "";
+                }" />
+                <rewrite-uri template="@("/" + (string)context.Variables["gemini-operation"])" copy-unmatched-params="false" />
+                <!-- Inject model into request body for Gemini -->
+                <set-body>@{
+                    var body = context.Request.Body.As<JObject>(preserveContent: true);
+                    body["model"] = (string)context.Variables["model-deployment"];
+                    return body.ToString();
+                }</set-body>
+            </when>
+%{ endif ~}
+            <otherwise>
+                <!-- Foundry backend with managed identity auth -->
+                <set-backend-service id="set-chat-backend" backend-id="${chat_backend_id}" />
+                <set-variable name="is-gemini" value="false" />
+                <authentication-managed-identity resource="https://cognitiveservices.azure.com/" />
+            </otherwise>
+        </choose>
         <!-- Emit token metrics to Application Insights -->
         <llm-emit-token-metric namespace="${metric_namespace}">
             <dimension name="API ID" />
@@ -30,23 +64,32 @@
             <dimension name="Client IP" value="@(context.Request.IpAddress)" />
             <dimension name="Model" value="@((string)context.Variables["model-deployment"])" />
         </llm-emit-token-metric>
-        <!-- Semantic cache lookup (uses embeddings backend with managed identity) -->
-        <llm-semantic-cache-lookup
-            score-threshold="${cache_score_threshold}"
-            embeddings-backend-id="${embeddings_backend_id}"
-            embeddings-backend-auth="system-assigned"
-            ignore-system-messages="true"
-            max-message-count="10">
-            <vary-by>@(context.Subscription.Id)</vary-by>
-        </llm-semantic-cache-lookup>
+        <!-- Semantic cache lookup — skip for Gemini (different embeddings provider) -->
+        <choose>
+            <when condition="@((string)context.Variables["is-gemini"] != "true")">
+                <llm-semantic-cache-lookup
+                    score-threshold="${cache_score_threshold}"
+                    embeddings-backend-id="${embeddings_backend_id}"
+                    embeddings-backend-auth="system-assigned"
+                    ignore-system-messages="true"
+                    max-message-count="10">
+                    <vary-by>@(context.Subscription.Id)</vary-by>
+                    <vary-by>@((string)context.Variables["model-deployment"])</vary-by>
+                </llm-semantic-cache-lookup>
+            </when>
+        </choose>
     </inbound>
     <backend>
         <base />
     </backend>
     <outbound>
         <base />
-        <!-- Store response in semantic cache -->
-        <llm-semantic-cache-store duration="${cache_duration}" />
+        <!-- Store response in semantic cache (Foundry only) -->
+        <choose>
+            <when condition="@((string)context.Variables["is-gemini"] != "true")">
+                <llm-semantic-cache-store duration="${cache_duration}" />
+            </when>
+        </choose>
     </outbound>
     <on-error>
         <base />
