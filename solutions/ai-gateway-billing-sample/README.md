@@ -27,10 +27,11 @@ per-consumer **billing/chargeback metering**, **semantic caching**, and
 
 | Feature | How It Works |
 |---------|-------------|
-| **Token metering** | `llm-emit-token-metric` emits per-request token counts to App Insights with dimensions: Subscription ID, User ID, API ID, Operation ID, Client IP |
-| **Per-consumer billing** | KQL queries + Azure Monitor Workbook aggregate metrics by subscription (consumer) for chargeback |
+| **Token metering** | `llm-emit-token-metric` emits per-request token counts to App Insights with dimensions: Subscription ID, User ID, API ID, Operation ID, Client IP, Model |
+| **Per-consumer billing** | KQL queries + Azure Monitor Workbook aggregate metrics by subscription (consumer) for chargeback with per-model cost estimation |
 | **Token rate limiting** | `llm-token-limit` enforces TPM and hourly quotas per APIM product (Standard vs Premium) |
 | **Semantic caching** | `llm-semantic-cache-lookup/store` deduplicates similar prompts using an embeddings backend |
+| **Model routing** | This sample routes to a subset of models in a single AI Foundry instance. APIM's `llm-*` policies are provider-agnostic — additional backends can route to OpenAI, Google Gemini, Amazon Bedrock, or any OpenAI-compatible endpoint |
 | **JWT authentication** | `validate-azure-ad-token` validates Entra ID tokens — each consumer has a service principal |
 
 ## Prerequisites
@@ -121,9 +122,10 @@ uv run load-test.py --requests 20 --concurrency 5
 
 ### 5. View billing dashboard
 
-1. Open the Azure portal → Application Insights resource
-2. Go to **Workbooks** → **Open** → upload `workbook/ai-gateway-billing.json`
-3. Or run the queries in `workbook/sample-queries.kql` directly in Log Analytics
+1. Open the Azure portal → your **Resource Group**
+2. Find the **AI Gateway Billing Dashboard** workbook (deployed automatically)
+3. Or navigate to Application Insights → **Workbooks** to find it there
+4. For ad-hoc queries, run `workbook/sample-queries.kql` directly in Log Analytics
 
 ## What Gets Deployed
 
@@ -131,12 +133,15 @@ uv run load-test.py --requests 20 --concurrency 5
 |----------|---------|
 | Resource Group | Container for all resources |
 | Log Analytics Workspace | Backend for Application Insights |
-| Application Insights | Receives token metrics from APIM |
+| Application Insights | Receives token metrics from APIM (custom metrics with dimensions enabled) |
 | AI Foundry (AIServices) | Hosts AI models (chat + embeddings) |
 | AI Foundry Project | Organizational container |
-| API Management (Developer) | AI Gateway with policies |
-| Entra ID App Registrations (×4) | API audience + 3 consumer SPs |
-| RBAC Role Assignment | APIM managed identity → Foundry (for embeddings) |
+| API Management (Developer) | AI Gateway with policies, backends, products, and subscriptions |
+| APIM Logger + Diagnostics | API-level App Insights diagnostic with custom metrics enabled |
+| APIM Platform Diagnostic Setting | Sends GatewayLogs, audit logs, and platform metrics to Log Analytics |
+| Entra ID App Registrations (×4) | API audience + 3 consumer service principals with passwords |
+| RBAC Role Assignments | APIM managed identity → Foundry; consumer SPs → API app |
+| Azure Monitor Workbook | Billing dashboard with per-model cost estimation (auto-deployed) |
 | Key Vault *(optional)* | Stores consumer credentials for test tooling |
 
 ## APIM Policy Stack
@@ -150,7 +155,8 @@ Product Policy (Standard or Premium)
 API Policy (openai-gateway)
   ├─ set-backend-service → foundry-chat
   ├─ validate-azure-ad-token (Entra ID JWT)
-  ├─ llm-emit-token-metric (App Insights custom metrics)
+  ├─ set-variable (extract model deployment name from URL)
+  ├─ llm-emit-token-metric (App Insights custom metrics + Model dimension)
   └─ llm-semantic-cache-lookup/store (embeddings backend)
 ```
 

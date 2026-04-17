@@ -192,16 +192,26 @@ variable "metric_namespace" {
   default     = "AIGateway"
 }
 
-variable "cost_per_1k_prompt_tokens" {
-  description = "Estimated cost per 1K prompt tokens (for KQL cost projections)."
-  type        = number
-  default     = 0.01
-}
-
-variable "cost_per_1k_completion_tokens" {
-  description = "Estimated cost per 1K completion tokens (for KQL cost projections)."
-  type        = number
-  default     = 0.03
+variable "model_pricing" {
+  description = "Per-model pricing (cost per 1K tokens) used in the billing workbook. Update these values to match your Azure pricing tier. See https://prices.azure.com/api/retail/prices for live rates."
+  type = map(object({
+    prompt_per_1k     = number
+    completion_per_1k = number
+  }))
+  default = {
+    "gpt-4.1" = {
+      prompt_per_1k     = 0.002
+      completion_per_1k = 0.008
+    }
+    "gpt-4o-mini" = {
+      prompt_per_1k     = 0.00015
+      completion_per_1k = 0.0006
+    }
+    "gpt-5.1-chat" = {
+      prompt_per_1k     = 0.00125
+      completion_per_1k = 0.01
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------

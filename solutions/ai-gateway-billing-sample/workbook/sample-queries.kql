@@ -9,29 +9,46 @@
 // ---------------------------------------------------------------------------
 // 1. Total tokens per consumer per day
 // ---------------------------------------------------------------------------
+// Replace the subscription IDs below with your actual APIM subscription IDs
+// (from terraform output or the Azure portal) to see friendly team names.
+let subscription_names = datatable(SubscriptionId: string, TeamName: string)[
+    "<alpha-subscription-id>", "Team Alpha (Standard)",
+    "<bravo-subscription-id>", "Team Bravo (Premium)",
+    "<charlie-subscription-id>", "Team Charlie (Standard)",
+];
 customMetrics
-| where name startswith "AIGateway"
+| where name in ("Total Tokens", "Prompt Tokens", "Completion Tokens")
 | extend SubscriptionId = tostring(customDimensions["Subscription ID"])
+| lookup subscription_names on SubscriptionId
+| extend Consumer = coalesce(TeamName, SubscriptionId)
 | summarize
     TotalTokens = sum(value)
-    by SubscriptionId, bin(timestamp, 1d)
+    by Consumer, bin(timestamp, 1d)
 | order by timestamp desc, TotalTokens desc
 
 // ---------------------------------------------------------------------------
-// 2. Cost estimation per consumer (prompt + completion tokens)
+// 2. Cost estimation per consumer (per-model pricing)
 // ---------------------------------------------------------------------------
-let cost_per_1k_prompt = 0.01;
-let cost_per_1k_completion = 0.03;
+// Adjust per-model rates to match your Azure pricing tier. You can find live
+// rates at: https://prices.azure.com/api/retail/prices?$filter=productName eq 'Azure OpenAI'
+let model_pricing = datatable(Model: string, PromptPer1K: real, CompletionPer1K: real) [
+    "gpt-4.1",        0.002,   0.008,
+    "gpt-4o-mini",    0.00015, 0.0006,
+    "gpt-5.1-chat",   0.00125, 0.01,
+];
 customMetrics
-| where name startswith "AIGateway"
+| where name in ("Prompt Tokens", "Completion Tokens")
 | extend
     SubscriptionId = tostring(customDimensions["Subscription ID"]),
+    Model = tostring(customDimensions["Model"]),
     TokenType = name
-| summarize Tokens = sum(value) by SubscriptionId, TokenType, bin(timestamp, 1d)
-| extend EstimatedCost = case(
-    TokenType has "Prompt", Tokens / 1000.0 * cost_per_1k_prompt,
-    TokenType has "Completion", Tokens / 1000.0 * cost_per_1k_completion,
+| lookup model_pricing on Model
+| extend CostPer1K = case(
+    TokenType has "Prompt", coalesce(PromptPer1K, 0.002),
+    TokenType has "Completion", coalesce(CompletionPer1K, 0.008),
     0.0)
+| summarize Tokens = sum(value) by SubscriptionId, Model, TokenType, bin(timestamp, 1d), CostPer1K
+| extend EstimatedCost = Tokens / 1000.0 * CostPer1K
 | summarize
     TotalTokens = sum(Tokens),
     TotalCost = sum(EstimatedCost)
@@ -39,10 +56,47 @@ customMetrics
 | order by timestamp desc, TotalCost desc
 
 // ---------------------------------------------------------------------------
+// 2b. Model-aware cost estimation per consumer
+// ---------------------------------------------------------------------------
+// Joins token metrics with request logs to determine which model served each
+// request. Uses the deployment name from the URL path and a lookup table of
+// per-model pricing. Adjust rates to match your Azure pricing tier.
+// ---------------------------------------------------------------------------
+let model_pricing = datatable(Model: string, PromptPer1K: real, CompletionPer1K: real) [
+    "gpt-4.1",        0.002,   0.008,
+    "gpt-4o-mini",    0.00015, 0.0006,
+    "gpt-5.1-chat",   0.00125, 0.01,
+];
+AppRequests
+| where TimeGenerated > ago(7d)
+| where url has "/openai/deployments/"
+| extend Model = extract(@"/deployments/([^/]+)/", 1, url)
+| extend SubscriptionId = tostring(customDimensions["Subscription ID"])
+| join kind=inner (
+    customMetrics
+    | where name in ("Total Tokens", "Prompt Tokens", "Completion Tokens")
+    | where timestamp > ago(7d)
+    | extend
+        SubscriptionId = tostring(customDimensions["Subscription ID"]),
+        TokenType = name
+    | project SubscriptionId, TokenType, Tokens = value, timestamp
+) on SubscriptionId, $left.TimeGenerated == $right.timestamp
+| lookup model_pricing on Model
+| extend EstimatedCost = case(
+    TokenType has "Prompt", Tokens / 1000.0 * PromptPer1K,
+    TokenType has "Completion", Tokens / 1000.0 * CompletionPer1K,
+    0.0)
+| summarize
+    TotalTokens = sum(Tokens),
+    TotalCost = sum(EstimatedCost)
+    by SubscriptionId, Model, bin(TimeGenerated, 1d)
+| order by TimeGenerated desc, TotalCost desc
+
+// ---------------------------------------------------------------------------
 // 3. Top consumers by total token usage (last 7 days)
 // ---------------------------------------------------------------------------
 customMetrics
-| where name startswith "AIGateway"
+| where name in ("Total Tokens", "Prompt Tokens", "Completion Tokens")
 | where timestamp > ago(7d)
 | extend SubscriptionId = tostring(customDimensions["Subscription ID"])
 | summarize TotalTokens = sum(value) by SubscriptionId
@@ -52,7 +106,7 @@ customMetrics
 // 4. Usage trend over time (hourly buckets)
 // ---------------------------------------------------------------------------
 customMetrics
-| where name startswith "AIGateway"
+| where name in ("Total Tokens", "Prompt Tokens", "Completion Tokens")
 | where timestamp > ago(24h)
 | extend SubscriptionId = tostring(customDimensions["Subscription ID"])
 | summarize Tokens = sum(value) by SubscriptionId, bin(timestamp, 1h)
@@ -62,7 +116,7 @@ customMetrics
 // 5. Tokens by API operation
 // ---------------------------------------------------------------------------
 customMetrics
-| where name startswith "AIGateway"
+| where name in ("Total Tokens", "Prompt Tokens", "Completion Tokens")
 | where timestamp > ago(7d)
 | extend
     OperationId = tostring(customDimensions["Operation ID"]),
@@ -74,7 +128,7 @@ customMetrics
 // 6. Requests by client IP
 // ---------------------------------------------------------------------------
 customMetrics
-| where name startswith "AIGateway"
+| where name in ("Total Tokens", "Prompt Tokens", "Completion Tokens")
 | where timestamp > ago(7d)
 | extend ClientIP = tostring(customDimensions["Client IP"])
 | summarize

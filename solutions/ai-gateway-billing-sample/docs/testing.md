@@ -174,6 +174,16 @@ uv run load-test.py \
   --concurrency 5
 ```
 
+> **Model deployments**: By default the load test round-robins requests across
+> three models: `gpt-4.1`, `gpt-4o-mini`, and `gpt-5.1-chat`. All three must
+> be deployed in your AI Foundry backend or the requests targeting a missing
+> model will return `404`. To test with fewer models, pass `--models` with a
+> comma-separated list:
+>
+> ```bash
+> uv run load-test.py --models gpt-4.1
+> ```
+
 #### Using Key Vault
 
 If `KEY_VAULT_NAME` is set in `.env` (or passed via `--key-vault`), the script
@@ -207,7 +217,7 @@ uv run load-test.py \
 | `--bravo-client-id` | `.env` or Key Vault | Team Bravo SP client ID |
 | `--bravo-client-secret` | `.env` or Key Vault | Team Bravo SP client secret |
 | `--key-vault` | `KEY_VAULT_NAME` | Azure Key Vault name to fetch missing secrets |
-| `--model` | `gpt-4.1` | Model deployment name |
+| `--models` | `gpt-4.1,gpt-4o-mini,gpt-5.1-chat` | Comma-separated model deployment names (requests are round-robined across them) |
 | `--requests` | `10` | Number of requests **per consumer** |
 | `--concurrency` | `3` | Max concurrent requests per consumer |
 

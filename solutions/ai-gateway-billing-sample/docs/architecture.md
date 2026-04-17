@@ -63,6 +63,14 @@ introducing additional services (Event Hub, Functions, etc.). The custom metric
 dimensions (Subscription ID, User ID, API ID, etc.) provide enough granularity
 for per-consumer billing dashboards via KQL.
 
+> **Important**: Application Insights must have **custom metrics with dimensions**
+> enabled, otherwise the `llm-emit-token-metric` policy will send metrics but
+> strip the dimension values — making per-consumer queries return empty results.
+> This is configured automatically via `azapi_update_resource` in `main.tf`
+> (setting `CustomMetricsOptedInType = "WithDimensions"`). If deploying
+> manually, enable it in the portal under **Application Insights → Usage and
+> estimated costs → Custom metrics (Preview) → With dimensions**.
+
 ## Decision 7: Simple Single-Backend Routing
 
 **Choice**: Single AI Foundry backend, no load balancing or failover.
@@ -71,6 +79,14 @@ for per-consumer billing dashboards via KQL.
 is valuable but orthogonal to billing/metering. Keeping routing simple keeps
 the demo focused and the policy XML readable. The sophisticated routing policy
 exists as a separate reference in the `tjs-apim-test` environment.
+
+> **Note on multi-provider routing**: This sample routes to a subset of models
+> hosted in a single AI Foundry instance, but APIM's `llm-*` policies are
+> provider-agnostic. By adding additional backends and conditional
+> `set-backend-service` rules, the same gateway pattern can route to any
+> OpenAI-compatible endpoint — including OpenAI directly, Google Gemini,
+> Amazon Bedrock, or self-hosted models. The billing, rate-limiting, and
+> caching policies apply regardless of the backend provider.
 
 ## Note: AI Foundry Project Management
 
@@ -169,3 +185,67 @@ AppRequests
 | extend prompt = tostring(requestBody.messages[-1].content)
 | project TimeGenerated, Name, prompt, ResultCode
 ```
+
+## Decision 10: Comprehensive APIM Diagnostic Settings
+
+**Choice**: Enable `allLogs`, `AuditLogs`, `GatewayLogs`, and `AllMetrics` in
+the APIM diagnostic setting to Log Analytics.
+
+**Rationale**: For this demo, we enable all available log categories to provide
+full visibility into gateway behavior, audit trails, and platform metrics. This
+makes it easy to troubleshoot issues, correlate request data with token metrics,
+and demonstrate the full observability stack.
+
+> **Note for production**: You do not need all of these categories enabled. In a
+> production environment, consider enabling only the categories you actively
+> query to reduce Log Analytics ingestion costs:
+>
+> - **`GatewayLogs`** — Required for request-level visibility (status codes,
+>   latency, backend routing). Most teams need this.
+> - **`AuditLogs`** — Tracks control-plane changes (policy edits, subscription
+>   key rotations, user management). Useful for compliance and change auditing.
+> - **`allLogs`** — Superset category that includes all log types. Convenient
+>   but can be redundant if you already enable specific categories.
+> - **`AllMetrics`** — Platform metrics (request count, capacity, latency
+>   percentiles). Useful for dashboards and autoscaling alerts.
+>
+> Disable categories you don't need to keep costs predictable.
+
+## Decision 11: Per-Model Cost Estimation
+
+**Choice**: Use a KQL `datatable` lookup to apply per-model token pricing
+(prompt vs. completion) based on the `Model` dimension emitted by
+`llm-emit-token-metric`. Pricing rates are injected into the workbook at
+deploy time from the Terraform `model_pricing` variable.
+
+**Rationale**: A flat cost-per-token rate across all models is inaccurate —
+gpt-4o-mini is ~13× cheaper than gpt-4.1 per input token. The `Model`
+dimension captures which deployment served each request, allowing the cost
+query to join with a pricing table and produce realistic per-consumer bills.
+
+**Default rates** (Global Standard, per 1K tokens):
+
+| Model | Prompt | Completion |
+|---|---|---|
+| gpt-4.1 | $0.002 | $0.008 |
+| gpt-4o-mini | $0.00015 | $0.0006 |
+| gpt-5.1-chat | $0.00125 | $0.01 |
+
+**Fallback**: If the `Model` dimension is missing (e.g., cached responses),
+the query falls back to gpt-4.1 rates via `coalesce()`.
+
+**Dynamic pricing option**: Azure publishes live token pricing via the
+[Retail Prices API](https://prices.azure.com/api/retail/prices) — a public,
+unauthenticated REST endpoint. Example query:
+
+```
+GET https://prices.azure.com/api/retail/prices?$filter=productName eq 'Azure OpenAI'
+```
+
+> **Note**: Newer models (e.g., gpt-5.x) may appear under `serviceName eq
+> 'Foundry Models'` instead of `'Azure OpenAI'`. The API returns per-1K or
+> per-1M token rates depending on the model, so normalize units before use.
+
+This sample uses static rates for simplicity. A production system could call
+the Retail Prices API on a schedule (e.g., daily Azure Function) and update
+the pricing datatable in the workbook or a Log Analytics custom table.

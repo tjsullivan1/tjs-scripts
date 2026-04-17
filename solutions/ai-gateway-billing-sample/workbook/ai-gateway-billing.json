@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# AI Gateway Billing Dashboard\n\nThis workbook shows token usage, cost projections, and consumer activity from the AI Gateway APIM policies.\n\n**Metric source**: `llm-emit-token-metric` policy → Application Insights custom metrics (namespace: `AIGateway`)"
+        "json": "# AI Gateway Billing Dashboard\n\nToken usage, cost projections, and consumer activity from the AI Gateway APIM policies.\n\n**Metric source**: `llm-emit-token-metric` policy \u2192 Application Insights custom metrics (namespace: `AIGateway`)"
       },
       "name": "header"
     },
@@ -17,6 +17,7 @@
             "id": "time-range",
             "version": "KqlParameterItem/1.0",
             "name": "TimeRange",
+            "label": "Time Range",
             "type": 4,
             "isRequired": true,
             "typeSettings": {
@@ -30,9 +31,64 @@
                 { "durationMs": 2592000000 }
               ]
             },
-            "value": {
-              "durationMs": 86400000
-            }
+            "value": { "durationMs": 86400000 }
+          },
+          {
+            "id": "param-consumer",
+            "version": "KqlParameterItem/1.0",
+            "name": "Consumer",
+            "label": "Consumer",
+            "type": 2,
+            "isRequired": false,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\ncustomMetrics\n| where name in (\"Total Tokens\", \"Prompt Tokens\", \"Completion Tokens\")\n| extend SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| distinct Consumer\n| order by Consumer asc",
+            "typeSettings": {
+              "additionalResourceOptions": ["value::all"],
+              "showDefault": false
+            },
+            "timeContextFromParameter": "TimeRange",
+            "queryType": 0,
+            "resourceType": "microsoft.insights/components",
+            "value": ["value::all"]
+          },
+          {
+            "id": "param-model",
+            "version": "KqlParameterItem/1.0",
+            "name": "Model",
+            "label": "Model",
+            "type": 2,
+            "isRequired": false,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "customMetrics\n| where name in (\"Total Tokens\", \"Prompt Tokens\", \"Completion Tokens\")\n| extend Model = tostring(customDimensions[\"Model\"])\n| where isnotempty(Model)\n| distinct Model\n| order by Model asc",
+            "typeSettings": {
+              "additionalResourceOptions": ["value::all"],
+              "showDefault": false
+            },
+            "timeContextFromParameter": "TimeRange",
+            "queryType": 0,
+            "resourceType": "microsoft.insights/components",
+            "value": ["value::all"]
+          },
+          {
+            "id": "param-token-type",
+            "version": "KqlParameterItem/1.0",
+            "name": "TokenType",
+            "label": "Token Type",
+            "type": 2,
+            "isRequired": false,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "typeSettings": {
+              "additionalResourceOptions": ["value::all"],
+              "showDefault": false
+            },
+            "jsonData": "[{\"value\":\"Total Tokens\",\"label\":\"Total Tokens\"},{\"value\":\"Prompt Tokens\",\"label\":\"Prompt Tokens\"},{\"value\":\"Completion Tokens\",\"label\":\"Completion Tokens\"}]",
+            "value": ["value::all"]
           }
         ]
       },
@@ -41,50 +97,7 @@
     {
       "type": 1,
       "content": {
-        "json": "## Token Usage by Consumer"
-      },
-      "name": "section-usage"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| summarize TotalTokens = sum(value) by SubscriptionId, bin(timestamp, 1h)\n| render timechart",
-        "size": 0,
-        "title": "Token Usage Over Time (by Consumer)",
-        "timeContext": {
-          "durationMs": 0,
-          "endTime": null,
-          "createdTime": null,
-          "isInitialTime": false,
-          "grain": 1,
-          "useDashboardTimeRange": false
-        },
-        "timeContextFromParameter": "TimeRange",
-        "queryType": 0,
-        "resourceType": "microsoft.insights/components",
-        "visualization": "timechart"
-      },
-      "name": "chart-usage-over-time"
-    },
-    {
-      "type": 3,
-      "content": {
-        "version": "KqlItem/1.0",
-        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| summarize TotalTokens = sum(value) by SubscriptionId\n| top 10 by TotalTokens desc",
-        "size": 0,
-        "title": "Top Consumers by Token Usage",
-        "timeContextFromParameter": "TimeRange",
-        "queryType": 0,
-        "resourceType": "microsoft.insights/components",
-        "visualization": "barchart"
-      },
-      "name": "chart-top-consumers"
-    },
-    {
-      "type": 1,
-      "content": {
-        "json": "## Cost Estimation"
+        "json": "---\n## \ud83d\udcb0 Cost Estimation"
       },
       "name": "section-cost"
     },
@@ -92,7 +105,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let cost_per_1k_prompt = 0.01;\nlet cost_per_1k_completion = 0.03;\ncustomMetrics\n| where name startswith \"AIGateway\"\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    TokenType = name\n| summarize Tokens = sum(value) by SubscriptionId, TokenType, bin(timestamp, 1d)\n| extend EstimatedCost = case(\n    TokenType has \"Prompt\", Tokens / 1000.0 * cost_per_1k_prompt,\n    TokenType has \"Completion\", Tokens / 1000.0 * cost_per_1k_completion,\n    0.0)\n| summarize\n    TotalTokens = sum(Tokens),\n    TotalCost = sum(EstimatedCost)\n    by SubscriptionId, bin(timestamp, 1d)\n| order by timestamp desc, TotalCost desc",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nlet model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.002),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.008),\n    0.0)\n| summarize Tokens = sum(value) by Consumer, Model, TokenType, bin(timestamp, 1d), CostPer1K\n| extend EstimatedCost = Tokens / 1000.0 * CostPer1K\n| summarize\n    TotalTokens = sum(Tokens),\n    TotalCost = sum(EstimatedCost)\n    by Consumer, bin(timestamp, 1d)\n| order by timestamp desc, TotalCost desc",
         "size": 0,
         "title": "Daily Cost Estimate per Consumer",
         "timeContextFromParameter": "TimeRange",
@@ -115,9 +128,223 @@
       "name": "table-daily-cost"
     },
     {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nlet model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.002),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.008),\n    0.0)\n| summarize Tokens = sum(value) by Consumer, Model, TokenType, bin(timestamp, 1d), CostPer1K\n| extend EstimatedCost = Tokens / 1000.0 * CostPer1K\n| summarize TotalCost = sum(EstimatedCost) by Consumer, bin(timestamp, 1d)\n| render timechart",
+        "size": 0,
+        "title": "Cost Trend Over Time (by Consumer)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "chart-cost-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.002),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.008),\n    0.0)\n| extend EstimatedCost = value / 1000.0 * CostPer1K\n| summarize TotalCost = sum(EstimatedCost) by Model\n| order by TotalCost desc",
+        "size": 0,
+        "title": "Cost Breakdown by Model",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "piechart"
+      },
+      "name": "chart-cost-by-model"
+    },
+    {
       "type": 1,
       "content": {
-        "json": "## Operations & Client Details"
+        "json": "---\n## \ud83d\udcca Token Usage"
+      },
+      "name": "section-usage"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\ncustomMetrics\n| where name in (\"Total Tokens\", \"Prompt Tokens\", \"Completion Tokens\")\n| where ('*' in ({TokenType}) or name in ({TokenType}))\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize TotalTokens = sum(value) by Consumer, bin(timestamp, 1h)\n| render timechart",
+        "size": 0,
+        "title": "Token Usage Over Time (by Consumer)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "chart-usage-over-time"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\ncustomMetrics\n| where name in (\"Total Tokens\", \"Prompt Tokens\", \"Completion Tokens\")\n| where ('*' in ({TokenType}) or name in ({TokenType}))\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize TotalTokens = sum(value) by Consumer\n| top 10 by TotalTokens desc",
+        "size": 0,
+        "title": "Top Consumers by Token Usage",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "barchart"
+      },
+      "name": "chart-top-consumers"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "---\n## \ud83e\udd16 Model Breakdown"
+      },
+      "name": "section-model"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\ncustomMetrics\n| where name in (\"Total Tokens\", \"Prompt Tokens\", \"Completion Tokens\")\n| where ('*' in ({TokenType}) or name in ({TokenType}))\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize TotalTokens = sum(value) by Model, bin(timestamp, 1h)\n| render timechart",
+        "size": 0,
+        "title": "Token Usage Over Time (by Model)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "chart-usage-by-model-time"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name in (\"Total Tokens\")\n| extend Model = tostring(customDimensions[\"Model\"])\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize TotalTokens = sum(value) by Model\n| order by TotalTokens desc",
+        "size": 0,
+        "title": "Total Token Share by Model",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "piechart"
+      },
+      "name": "chart-model-share"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize\n    PromptTokens = sumif(value, TokenType == \"Prompt Tokens\"),\n    CompletionTokens = sumif(value, TokenType == \"Completion Tokens\")\n    by Consumer, Model\n| extend TotalTokens = PromptTokens + CompletionTokens,\n    PromptRatio = round(100.0 * PromptTokens / (PromptTokens + CompletionTokens), 1)\n| order by TotalTokens desc",
+        "size": 0,
+        "title": "Prompt vs Completion Breakdown (by Consumer & Model)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "PromptRatio",
+              "formatter": 4,
+              "formatOptions": {
+                "min": 0,
+                "max": 100,
+                "palette": "blue"
+              }
+            }
+          ]
+        }
+      },
+      "name": "table-prompt-completion"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "---\n## \u26a1 Response Performance"
+      },
+      "name": "section-performance"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "requests\n| where url has \"/openai/\"\n| extend Model = extract(@\"/deployments/([^/]+)/\", 1, url)\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize\n    AvgDuration = round(avg(duration), 0),\n    P50 = round(percentile(duration, 50), 0),\n    P90 = round(percentile(duration, 90), 0),\n    P99 = round(percentile(duration, 99), 0),\n    RequestCount = count()\n    by Model\n| order by RequestCount desc",
+        "size": 0,
+        "title": "Response Latency by Model (ms)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "table-latency-model"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "requests\n| where url has \"/openai/\"\n| extend Model = extract(@\"/deployments/([^/]+)/\", 1, url)\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize AvgDuration = avg(duration) by Model, bin(timestamp, 5m)\n| render timechart",
+        "size": 0,
+        "title": "Average Response Time Over Time (by Model)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "chart-latency-trend"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nrequests\n| where url has \"/openai/\"\n| extend\n    StatusBucket = case(\n        resultCode startswith \"2\", \"2xx Success\",\n        resultCode startswith \"4\", \"4xx Client Error\",\n        resultCode startswith \"5\", \"5xx Server Error\",\n        strcat(\"Other (\", resultCode, \")\")),\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| summarize Count = count() by StatusBucket, bin(timestamp, 1h)\n| render timechart",
+        "size": 0,
+        "title": "Response Status Over Time",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "chart-response-status"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "---\n## \ud83d\uddc2\ufe0f Semantic Cache"
+      },
+      "name": "section-cache"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "requests\n| where url has \"/openai/\"\n| extend IsCacheHit = duration < 100\n| summarize\n    TotalRequests = count(),\n    CacheHits = countif(IsCacheHit),\n    BackendCalls = countif(not(IsCacheHit))\n| extend CacheHitRate = round(100.0 * CacheHits / TotalRequests, 1)",
+        "size": 4,
+        "title": "Cache Hit Rate (Overall)",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "CacheHitRate", "formatter": 1 },
+          "subtitleContent": { "columnMatch": "TotalRequests" },
+          "showBorder": true
+        }
+      },
+      "name": "tile-cache-rate"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "requests\n| where url has \"/openai/\"\n| extend IsCacheHit = duration < 100\n| summarize\n    CacheHits = countif(IsCacheHit),\n    BackendCalls = countif(not(IsCacheHit))\n    by bin(timestamp, 1h)\n| render timechart",
+        "size": 0,
+        "title": "Cache Hits vs Backend Calls Over Time",
+        "timeContextFromParameter": "TimeRange",
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "timechart"
+      },
+      "name": "chart-cache-trend"
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "---\n## \ud83d\udd0d Operations & Client Details"
       },
       "name": "section-operations"
     },
@@ -125,9 +352,9 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend\n    OperationId = tostring(customDimensions[\"Operation ID\"]),\n    ApiId = tostring(customDimensions[\"API ID\"])\n| summarize TotalTokens = sum(value) by ApiId, OperationId\n| order by TotalTokens desc",
+        "query": "customMetrics\n| where name in (\"Total Tokens\", \"Prompt Tokens\", \"Completion Tokens\")\n| where ('*' in ({TokenType}) or name in ({TokenType}))\n| extend\n    OperationId = tostring(customDimensions[\"Operation ID\"]),\n    ApiId = tostring(customDimensions[\"API ID\"]),\n    Model = tostring(customDimensions[\"Model\"])\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize TotalTokens = sum(value) by ApiId, OperationId, Model\n| order by TotalTokens desc",
         "size": 0,
-        "title": "Tokens by API Operation",
+        "title": "Tokens by API Operation & Model",
         "timeContextFromParameter": "TimeRange",
         "queryType": 0,
         "resourceType": "microsoft.insights/components",
@@ -139,7 +366,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "customMetrics\n| where name startswith \"AIGateway\"\n| extend ClientIP = tostring(customDimensions[\"Client IP\"])\n| summarize\n    Requests = dcount(timestamp),\n    TotalTokens = sum(value)\n    by ClientIP\n| order by TotalTokens desc",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\ncustomMetrics\n| where name in (\"Total Tokens\", \"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    ClientIP = tostring(customDimensions[\"Client IP\"]),\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| summarize\n    Requests = dcount(timestamp),\n    TotalTokens = sum(value)\n    by ClientIP, Consumer\n| order by TotalTokens desc",
         "size": 0,
         "title": "Usage by Client IP",
         "timeContextFromParameter": "TimeRange",

@@ -42,6 +42,18 @@ resource "azurerm_application_insights" "this" {
   tags                = var.tags
 }
 
+# Enable custom metrics with dimensions (required for llm-emit-token-metric)
+resource "azapi_update_resource" "appinsights_custom_metrics" {
+  type        = "Microsoft.Insights/components@2020-02-02"
+  resource_id = azurerm_application_insights.this.id
+
+  body = {
+    properties = {
+      CustomMetricsOptedInType = "WithDimensions"
+    }
+  }
+}
+
 # =============================================================================
 # AI Foundry — Cognitive Services (AIServices) + Project + Deployments
 # =============================================================================
@@ -166,6 +178,26 @@ resource "azurerm_api_management" "this" {
   tags = var.tags
 }
 
+# APIM Diagnostic Setting — sends platform logs/metrics to Log Analytics
+resource "azurerm_monitor_diagnostic_setting" "apim" {
+  name                           = "apim-to-log-analytics"
+  target_resource_id             = azurerm_api_management.this.id
+  log_analytics_workspace_id     = azurerm_log_analytics_workspace.this.id
+  log_analytics_destination_type = "Dedicated"
+
+  enabled_log {
+    category_group = "allLogs"
+  }
+
+  enabled_log {
+    category_group = "audit"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
+}
+
 # APIM Logger — Application Insights
 resource "azurerm_api_management_logger" "appinsights" {
   name                = "appinsights-logger"
@@ -208,6 +240,52 @@ resource "azurerm_api_management_diagnostic" "appinsights" {
   backend_response {
     body_bytes = 8192
   }
+}
+
+# API-level diagnostic — enables Application Insights on the OpenAI API
+resource "azurerm_api_management_api_diagnostic" "openai_appinsights" {
+  identifier               = "applicationinsights"
+  resource_group_name      = azurerm_resource_group.this.name
+  api_management_name      = azurerm_api_management.this.name
+  api_name                 = azurerm_api_management_api.openai.name
+  api_management_logger_id = azurerm_api_management_logger.appinsights.id
+
+  sampling_percentage = 100.0
+
+  always_log_errors         = true
+  log_client_ip             = true
+  http_correlation_protocol = "W3C"
+  verbosity                 = "information"
+
+  frontend_request {
+    body_bytes = 8192
+  }
+
+  frontend_response {
+    body_bytes = 8192
+  }
+
+  backend_request {
+    body_bytes = 8192
+  }
+
+  backend_response {
+    body_bytes = 8192
+  }
+}
+
+# Enable custom metrics on the API-level diagnostic (not exposed by azurerm)
+resource "azapi_update_resource" "openai_diagnostic_metrics" {
+  type        = "Microsoft.ApiManagement/service/apis/diagnostics@2024-05-01"
+  resource_id = "${azurerm_api_management.this.id}/apis/${azurerm_api_management_api.openai.name}/diagnostics/applicationinsights"
+
+  body = {
+    properties = {
+      metrics = true
+    }
+  }
+
+  depends_on = [azurerm_api_management_api_diagnostic.openai_appinsights]
 }
 
 # =============================================================================
@@ -622,4 +700,40 @@ resource "azurerm_key_vault_secret" "this" {
   key_vault_id = azurerm_key_vault.this[0].id
 
   depends_on = [azurerm_role_assignment.kv_deployer_secrets_officer]
+}
+
+# =============================================================================
+# Azure Monitor Workbook — Billing Dashboard
+# =============================================================================
+
+resource "azurerm_application_insights_workbook" "billing" {
+  name                = "d2e3f4a5-b6c7-8d9e-0f1a-2b3c4d5e6f7a"
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  display_name        = "AI Gateway Billing Dashboard"
+  source_id           = lower(azurerm_application_insights.this.id)
+  tags                = var.tags
+
+  data_json = replace(
+    replace(
+      file("${path.module}/../workbook/ai-gateway-billing.json"),
+      "SUBSCRIPTION_LOOKUP",
+      join("", [
+        "datatable(SubscriptionId: string, TeamName: string)[",
+        "\\\"${azurerm_api_management_subscription.alpha_standard.subscription_id}\\\", \\\"Team Alpha (Standard)\\\", ",
+        "\\\"${azurerm_api_management_subscription.bravo_premium.subscription_id}\\\", \\\"Team Bravo (Premium)\\\", ",
+        "\\\"${azurerm_api_management_subscription.charlie_standard.subscription_id}\\\", \\\"Team Charlie (Standard)\\\"",
+        "]",
+      ])
+    ),
+    "MODEL_PRICING",
+    join("", [
+      "datatable(Model: string, PromptPer1K: real, CompletionPer1K: real)[",
+      join(", ", [
+        for name, pricing in var.model_pricing :
+        "\\\"${name}\\\", ${pricing.prompt_per_1k}, ${pricing.completion_per_1k}"
+      ]),
+      "]",
+    ])
+  )
 }

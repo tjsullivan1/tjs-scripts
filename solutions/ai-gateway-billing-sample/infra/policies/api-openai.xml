@@ -9,6 +9,8 @@
                 <audience>${api_client_id}</audience>
             </audiences>
         </validate-azure-ad-token>
+        <!-- Extract model deployment name for metric dimension -->
+        <set-variable name="model-deployment" value="@(context.Request.MatchedParameters.GetValueOrDefault(&quot;deployment-id&quot;, &quot;unknown&quot;))" />
         <!-- Emit token metrics to Application Insights -->
         <llm-emit-token-metric namespace="${metric_namespace}">
             <dimension name="API ID" />
@@ -16,6 +18,7 @@
             <dimension name="User ID" />
             <dimension name="Operation ID" />
             <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+            <dimension name="Model" value="@((string)context.Variables.GetValueOrDefault(&quot;model-deployment&quot;, &quot;unknown&quot;))" />
         </llm-emit-token-metric>
         <!-- Semantic cache lookup (uses embeddings backend with managed identity) -->
         <llm-semantic-cache-lookup
