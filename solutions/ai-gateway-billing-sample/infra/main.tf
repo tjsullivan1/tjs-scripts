@@ -686,7 +686,7 @@ resource "azurerm_api_management_api_policy" "openai" {
     tenant_id             = data.azurerm_client_config.current.tenant_id
     api_audience          = one(azuread_application.api.identifier_uris)
     api_client_id         = azuread_application.api.client_id
-    fallback_map_json     = jsonencode(var.model_fallback_map)
+    fallback_map_json     = replace(jsonencode(var.model_fallback_map), "\"", "&quot;")
     foundry_endpoint      = azurerm_cognitive_account.foundry.endpoint
   })
 
