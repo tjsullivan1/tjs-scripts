@@ -6,21 +6,36 @@ Azure API Management as an **AI Gateway** in front of Microsoft AI Foundry and
 
 ## Architecture
 
-```
-┌──────────────┐     ┌──────────────────────────────────────┐     ┌──────────────────────┐
-│  Consumers   │     │  Azure API Management (Developer)     │     │  AI Foundry           │
-│              │     │                                        │     │  (AIServices)         │
-│  Team Alpha ─────► │  Product: AI-Standard  (1K TPM)       │     │                       │
-│  Team Bravo ─────► │  Product: AI-Premium   (50K TPM)      ├────►│  gpt-4.1              │
-│  Team Charlie───► │                                        │     │  gpt-4o-mini          │
-│              │     │                                        │     │  gpt-5.1-chat         │
-│              │     │                                        │     │  text-embedding-3-small│
-│              │     │  Policies:                             │     └──────────────────────┘
-└──────────────┘     │   validate-azure-ad-token              │
-                     │   llm-token-limit (per product)        │     ┌──────────────────────┐
-                     │   llm-emit-token-metric  ──────────────┼────►│  Application Insights │
-                     │   llm-semantic-cache-lookup/store      │     │  + Billing Workbook   │
-                     └──────────────────────────────────────┘     └──────────────────────┘
+```mermaid
+graph LR
+    subgraph Consumers
+        A[Team Alpha]
+        B[Team Bravo]
+        C[Team Charlie]
+    end
+
+    subgraph APIM["Azure API Management (Developer)"]
+        direction TB
+        Products["Products:<br/>AI-Standard (1K TPM)<br/>AI-Premium (50K TPM)"]
+        Policies["Policies:<br/>validate-azure-ad-token<br/>llm-token-limit<br/>llm-emit-token-metric<br/>llm-semantic-cache<br/>circuit breaker fallback"]
+    end
+
+    subgraph Foundry["AI Foundry (AIServices)"]
+        M1[gpt-4.1]
+        M2[gpt-4o-mini]
+        M3[gpt-5.1-chat]
+        M4[text-embedding-3-small]
+    end
+
+    subgraph Observability
+        AppInsights["Application Insights<br/>+ Billing Workbook"]
+    end
+
+    A --> APIM
+    B --> APIM
+    C --> APIM
+    APIM --> Foundry
+    APIM --> AppInsights
 ```
 
 ### Key Features
@@ -152,19 +167,33 @@ uv run load-test.py --requests 20 --concurrency 5
 
 Policies are applied in this order (product → API → global):
 
-```
-Product Policy (Standard or Premium)
-  └─ llm-token-limit (TPM + hourly quota per subscription)
+```mermaid
+graph TD
+    subgraph Product["Product Policy (Standard or Premium)"]
+        TL["llm-token-limit<br/>(TPM + hourly quota per subscription)"]
+    end
 
-API Policy (openai-gateway)
-  ├─ set-variable (extract model deployment name from URL)
-  ├─ choose (model-based backend routing)
-  │   ├─ Gemini models → set-backend-service → gemini-chat + URL rewrite
-  │   └─ All others   → set-backend-service → foundry-chat + managed identity auth
-  ├─ validate-azure-ad-token (Entra ID JWT)
-  ├─ llm-emit-token-metric (App Insights custom metrics + Model dimension)
-  ├─ llm-semantic-cache-lookup/store (Foundry models only; partitioned by model)
-  └─ retry with fallback (429/5xx → cheaper model, with circuit breaker)
+    subgraph API["API Policy (openai-gateway)"]
+        direction TB
+        SV["set-variable<br/>(extract model from URL)"]
+        Route{"Model routing"}
+        Gemini["Gemini → gemini-chat<br/>+ URL rewrite"]
+        FoundryRoute["Others → foundry-chat<br/>+ managed identity"]
+        JWT["validate-azure-ad-token"]
+        Metrics["llm-emit-token-metric"]
+        Cache["llm-semantic-cache<br/>(Foundry only)"]
+        CB["Circuit breaker fallback<br/>(backend 429/5xx → cheaper model)"]
+    end
+
+    TL --> SV
+    SV --> Route
+    Route -->|Gemini models| Gemini
+    Route -->|All others| FoundryRoute
+    Gemini --> JWT
+    FoundryRoute --> JWT
+    JWT --> Metrics
+    Metrics --> Cache
+    Cache --> CB
 ```
 
 ### Circuit Breaker & Model-Tier Fallback
@@ -172,10 +201,15 @@ API Policy (openai-gateway)
 When a Foundry model returns **429** (rate limited) or **5xx** (server error),
 the gateway automatically retries with a cheaper model:
 
-```
-gpt-5.1-chat ──(429/5xx)──► gpt-4o-mini
-gpt-4.1      ──(429/5xx)──► gpt-4o-mini
-gpt-4o-mini  ──(429/5xx)──► error returned to caller
+```mermaid
+graph LR
+    GPT51["gpt-5.1-chat"] -->|"429/5xx"| Mini1["gpt-4o-mini"]
+    GPT41["gpt-4.1"] -->|"429/5xx"| Mini2["gpt-4o-mini"]
+    Mini3["gpt-4o-mini"] -->|"429/5xx"| Err["❌ Error returned"]
+
+    style Err fill:#f96,stroke:#c00
+    style Mini1 fill:#9f9,stroke:#090
+    style Mini2 fill:#9f9,stroke:#090
 ```
 
 > **Important**: Fallback only triggers on **backend-originated** 429s (model
