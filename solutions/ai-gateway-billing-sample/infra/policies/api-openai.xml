@@ -62,7 +62,7 @@
             </otherwise>
         </choose>
         <!-- Buffer request body to allow retry with different model -->
-        <set-variable name="original-body" value="@(context.Request.Body.As<string>(preserveContent: true))" />
+        <set-variable name="original-body" value="@(context.Request.Body.As&lt;string&gt;(preserveContent: true))" />
         <!-- Build fallback URL (used by send-request if primary fails) -->
         <set-variable name="foundry-base-url" value="${foundry_endpoint}openai" />
         <!-- Emit token metrics to Application Insights (inbound-only policy) -->
