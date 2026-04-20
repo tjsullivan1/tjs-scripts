@@ -219,16 +219,16 @@ variable "circuit_breaker_failure_count" {
   default     = 3
 }
 
-variable "circuit_breaker_interval_seconds" {
-  description = "Time window (in seconds) in which failures are counted."
-  type        = number
-  default     = 30
+variable "circuit_breaker_interval" {
+  description = "ISO 8601 duration for the failure counting window (e.g. PT30S)."
+  type        = string
+  default     = "PT30S"
 }
 
-variable "circuit_breaker_trip_duration_seconds" {
-  description = "Duration (in seconds) the circuit stays open after tripping."
-  type        = number
-  default     = 60
+variable "circuit_breaker_trip_duration" {
+  description = "ISO 8601 duration the circuit stays open after tripping (e.g. PT1M). Must match Azure's normalized form."
+  type        = string
+  default     = "PT1M"
 }
 
 variable "circuit_breaker_accept_retry_after" {

@@ -504,13 +504,13 @@ resource "azapi_update_resource" "chat_circuit_breaker" {
             name = "foundryBreakerRule"
             failureCondition = {
               count    = var.circuit_breaker_failure_count
-              interval = "PT${var.circuit_breaker_interval_seconds}S"
+              interval = var.circuit_breaker_interval
               statusCodeRanges = [
                 { min = 429, max = 429 },
                 { min = 500, max = 599 }
               ]
             }
-            tripDuration     = "PT${var.circuit_breaker_trip_duration_seconds}S"
+            tripDuration     = var.circuit_breaker_trip_duration
             acceptRetryAfter = var.circuit_breaker_accept_retry_after
           }
         ]
