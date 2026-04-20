@@ -314,10 +314,16 @@ model-tier fallback within the same provider. Cross-provider fallback
   repeated 429 (rate limited) or 5xx (server error) responses within a
   configurable window. Once open, requests fail fast instead of queuing against
   a degraded backend.
-- **Policy-level retry with model swap**: When a request receives 429 or 5xx
-  and the model has a defined fallback, the policy retries the request against
-  the cheaper model. The request body is buffered (`buffer-request-body`) to
-  allow POST replays.
+- **Policy-level retry with model swap**: When the **backend** returns 429 or
+  5xx and the model has a defined fallback, the policy retries the request
+  against the cheaper model via `send-request`.
+- **APIM rate limits are respected**: Fallback only triggers on
+  **backend-originated** 429s (model deployment overloaded), NOT on APIM's own
+  `llm-token-limit` 429s. This ensures consumer quota enforcement still works —
+  a rate-limited consumer doesn't get to bypass their limits by falling back to
+  a cheaper model. The policy distinguishes the two by checking for the
+  `x-ms-region` response header, which Azure OpenAI/Foundry always includes but
+  APIM-generated responses do not.
 - **Observability headers**: `x-served-model` and `x-fallback-reason` response
   headers indicate when a fallback occurred and which model actually served the
   request.

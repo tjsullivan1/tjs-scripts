@@ -178,6 +178,11 @@ gpt-4.1      ──(429/5xx)──► gpt-4o-mini
 gpt-4o-mini  ──(429/5xx)──► error returned to caller
 ```
 
+> **Important**: Fallback only triggers on **backend-originated** 429s (model
+> deployment overloaded). APIM's own `llm-token-limit` 429s (consumer over
+> quota) are returned as-is — consumers cannot bypass their rate limits by
+> triggering a fallback.
+
 **Observability**: Fallback responses include headers:
 - `x-served-model` — the model that actually generated the response
 - `x-fallback-reason` — why fallback occurred (e.g., `rate-limited`, `server-error`)
