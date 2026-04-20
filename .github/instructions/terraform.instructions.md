@@ -82,3 +82,11 @@ Use Terraform modules to group reusable infrastructure components. For any resou
   - CI pipeline
   - Pre-commit hooks
   - Enforce formatting, linting, and basic validation
+
+## 11. Escape Values Injected into XML/JSON Templates
+
+When using `templatefile()` to inject Terraform values into XML policy files (e.g., Azure APIM policies), JSON config files, or other structured formats:
+
+- **JSON inside XML attributes**: `jsonencode()` produces raw double quotes which break XML `value="..."` attributes. Always escape with `replace(jsonencode(...), "\"", "&quot;")` before injection.
+- **General rule**: Any value containing characters meaningful to the target format (`"`, `<`, `>`, `&` for XML; `"`, `\` for JSON) must be escaped for that format. `terraform validate` does NOT catch these — it only validates HCL syntax, not the rendered template content.
+- **Test rendered output**: When a `templatefile()` call targets a format with strict parsing (XML, JSON, YAML), verify the rendered content is valid in that format, not just valid HCL.
