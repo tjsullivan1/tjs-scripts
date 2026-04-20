@@ -89,4 +89,5 @@ When using `templatefile()` to inject Terraform values into XML policy files (e.
 
 - **JSON inside XML attributes**: `jsonencode()` produces raw double quotes which break XML `value="..."` attributes. Always escape with `replace(jsonencode(...), "\"", "&quot;")` before injection.
 - **General rule**: Any value containing characters meaningful to the target format (`"`, `<`, `>`, `&` for XML; `"`, `\` for JSON) must be escaped for that format. `terraform validate` does NOT catch these — it only validates HCL syntax, not the rendered template content.
+- **C# generics in APIM policy attributes**: Expressions like `Body.As<string>()` contain `<` which breaks XML attribute values. Use `As&lt;string&gt;()` in attributes. This is only needed in `value="@(...)"` attributes — element content like `<set-body>@{...}</set-body>` handles `<` correctly.
 - **Test rendered output**: When a `templatefile()` call targets a format with strict parsing (XML, JSON, YAML), verify the rendered content is valid in that format, not just valid HCL.
