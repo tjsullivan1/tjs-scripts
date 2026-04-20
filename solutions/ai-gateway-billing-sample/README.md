@@ -27,6 +27,10 @@ graph LR
         M4[text-embedding-3-small]
     end
 
+    subgraph Gemini["Google Gemini (optional)"]
+        G1[gemini-2.5-flash]
+    end
+
     subgraph Observability
         AppInsights["Application Insights<br/>+ Billing Workbook"]
     end
@@ -34,7 +38,8 @@ graph LR
     A --> APIM
     B --> APIM
     C --> APIM
-    APIM --> Foundry
+    APIM -->|"Managed Identity"| Foundry
+    APIM -->|"API Key (via Key Vault)"| Gemini
     APIM --> AppInsights
 ```
 
