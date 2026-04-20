@@ -483,6 +483,12 @@ resource "azurerm_api_management_backend" "chat" {
     validate_certificate_chain = true
     validate_certificate_name  = true
   }
+
+  # Circuit breaker rules are managed by azapi_update_resource below;
+  # ignore drift so azurerm doesn't strip them on every apply.
+  lifecycle {
+    ignore_changes = [circuit_breaker_rule]
+  }
 }
 
 # Circuit breaker on the Foundry chat backend (not yet in azurerm — use azapi)
