@@ -94,11 +94,14 @@
     </backend>
     <outbound>
         <base />
-        <!-- Check if backend returned an error that should trigger fallback -->
+        <!-- Check if backend returned an error that should trigger fallback.
+             Only trigger on BACKEND 429/5xx (not APIM llm-token-limit 429).
+             Backend responses include x-ms-region header; APIM-generated 429s do not. -->
         <choose>
             <when condition="@{
                 var statusCode = context.Response.StatusCode;
                 if (statusCode != 429 && statusCode < 500) return false;
+                if (!context.Response.Headers.ContainsKey("x-ms-region")) return false;
                 var currentModel = (string)context.Variables["served-model"];
                 var fallbackJson = (string)context.Variables["fallback-map"];
                 var fallbackMap = JObject.Parse(fallbackJson);
