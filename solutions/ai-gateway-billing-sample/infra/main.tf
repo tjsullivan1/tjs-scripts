@@ -485,6 +485,36 @@ resource "azurerm_api_management_backend" "chat" {
   }
 }
 
+# Circuit breaker on the Foundry chat backend (not yet in azurerm — use azapi)
+resource "azapi_update_resource" "chat_circuit_breaker" {
+  type        = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
+  resource_id = "${azurerm_api_management.this.id}/backends/${azurerm_api_management_backend.chat.name}"
+
+  body = {
+    properties = {
+      circuitBreaker = {
+        rules = [
+          {
+            name = "foundryBreakerRule"
+            failureCondition = {
+              count    = var.circuit_breaker_failure_count
+              interval = "PT${var.circuit_breaker_interval_seconds}S"
+              statusCodeRanges = [
+                { min = 429, max = 429 },
+                { min = 500, max = 599 }
+              ]
+            }
+            tripDuration     = "PT${var.circuit_breaker_trip_duration_seconds}S"
+            acceptRetryAfter = var.circuit_breaker_accept_retry_after
+          }
+        ]
+      }
+    }
+  }
+
+  depends_on = [azurerm_api_management_backend.chat]
+}
+
 # Embeddings backend — for semantic cache (managed identity auth)
 resource "azurerm_api_management_backend" "embeddings" {
   name                = "foundry-embeddings"
@@ -656,6 +686,8 @@ resource "azurerm_api_management_api_policy" "openai" {
     tenant_id             = data.azurerm_client_config.current.tenant_id
     api_audience          = one(azuread_application.api.identifier_uris)
     api_client_id         = azuread_application.api.client_id
+    fallback_map_json     = jsonencode(var.model_fallback_map)
+    foundry_endpoint      = azurerm_cognitive_account.foundry.endpoint
   })
 
   depends_on = [

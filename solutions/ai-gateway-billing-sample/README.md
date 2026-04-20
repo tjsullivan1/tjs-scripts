@@ -27,10 +27,11 @@ Azure API Management as an **AI Gateway** in front of Microsoft AI Foundry and
 
 | Feature | How It Works |
 |---------|-------------|
-| **Token metering** | `llm-emit-token-metric` emits per-request token counts to App Insights with dimensions: Subscription ID, User ID, API ID, Operation ID, Client IP, Model |
+| **Token metering** | `llm-emit-token-metric` emits per-request token counts to App Insights with dimensions: Subscription ID, User ID, API ID, Operation ID, Client IP, Model, Served-Model |
 | **Per-consumer billing** | KQL queries + Azure Monitor Workbook aggregate metrics by subscription (consumer) for chargeback with per-model cost estimation |
 | **Token rate limiting** | `llm-token-limit` enforces TPM and hourly quotas per APIM product (Standard vs Premium) |
-| **Semantic caching** | `llm-semantic-cache-lookup/store` deduplicates similar prompts using an embeddings backend |
+| **Circuit breaker + fallback** | Native APIM circuit breaker on backends with model-tier fallback: premium models (gpt-5.1-chat, gpt-4.1) automatically degrade to gpt-4o-mini on 429/5xx errors |
+| **Semantic caching** | `llm-semantic-cache-lookup/store` deduplicates similar prompts using an embeddings backend (bypassed on fallback to prevent cross-model contamination) |
 | **Model routing** | Requests are routed to AI Foundry or Google Gemini based on the model name in the URL path. Gemini models use the Google AI OpenAI-compatible endpoint; all others use AI Foundry with managed identity auth |
 | **JWT authentication** | `validate-azure-ad-token` validates Entra ID tokens — each consumer has a service principal |
 
@@ -162,8 +163,35 @@ API Policy (openai-gateway)
   │   └─ All others   → set-backend-service → foundry-chat + managed identity auth
   ├─ validate-azure-ad-token (Entra ID JWT)
   ├─ llm-emit-token-metric (App Insights custom metrics + Model dimension)
-  └─ llm-semantic-cache-lookup/store (Foundry models only; partitioned by model)
+  ├─ llm-semantic-cache-lookup/store (Foundry models only; partitioned by model)
+  └─ retry with fallback (429/5xx → cheaper model, with circuit breaker)
 ```
+
+### Circuit Breaker & Model-Tier Fallback
+
+When a Foundry model returns **429** (rate limited) or **5xx** (server error),
+the gateway automatically retries with a cheaper model:
+
+```
+gpt-5.1-chat ──(429/5xx)──► gpt-4o-mini
+gpt-4.1      ──(429/5xx)──► gpt-4o-mini
+gpt-4o-mini  ──(429/5xx)──► error returned to caller
+```
+
+**Observability**: Fallback responses include headers:
+- `x-served-model` — the model that actually generated the response
+- `x-fallback-reason` — why fallback occurred (e.g., `rate-limited`, `server-error`)
+
+**Native circuit breaker**: The Foundry backend has an APIM-level circuit breaker
+that trips after repeated failures. Once open, requests fail fast (503) rather
+than queuing against a degraded backend.
+
+> **Production note**: This sample uses model-tier fallback as a single-region
+> resilience pattern. In production, prefer **multi-region failover** (same model
+> across 2+ regions with priority-based backend pools) or **PTU → PayGo
+> spillover** (provisioned throughput for baseline + pay-as-you-go for bursts).
+> See [Architecture Decisions](docs/architecture.md#decision-15-circuit-breaker-with-model-tier-fallback)
+> for a detailed comparison.
 
 ## Cost Estimate
 

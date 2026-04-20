@@ -20,6 +20,12 @@
             }
             return "unknown";
         }" />
+        <!-- Store requested model before any fallback occurs -->
+        <set-variable name="requested-model" value="@((string)context.Variables["model-deployment"])" />
+        <set-variable name="served-model" value="@((string)context.Variables["model-deployment"])" />
+        <set-variable name="fallback-reason" value="" />
+        <!-- Fallback mapping (injected from Terraform) -->
+        <set-variable name="fallback-map" value="${fallback_map_json}" />
         <!-- Route to backend based on model name -->
         <choose>
 %{ if enable_gemini ~}
@@ -55,14 +61,18 @@
                 <authentication-managed-identity resource="https://cognitiveservices.azure.com/" />
             </otherwise>
         </choose>
-        <!-- Emit token metrics to Application Insights -->
+        <!-- Buffer request body to allow retry with different model -->
+        <set-variable name="original-body" value="@(context.Request.Body.As<string>(preserveContent: true))" />
+        <!-- Build fallback URL (used by send-request if primary fails) -->
+        <set-variable name="foundry-base-url" value="${foundry_endpoint}openai" />
+        <!-- Emit token metrics to Application Insights (inbound-only policy) -->
         <llm-emit-token-metric namespace="${metric_namespace}">
             <dimension name="API ID" />
             <dimension name="Subscription ID" />
             <dimension name="User ID" />
             <dimension name="Operation ID" />
             <dimension name="Client IP" value="@(context.Request.IpAddress)" />
-            <dimension name="Model" value="@((string)context.Variables["model-deployment"])" />
+            <dimension name="Model" value="@((string)context.Variables["requested-model"])" />
         </llm-emit-token-metric>
         <!-- Semantic cache lookup — skip for Gemini (different embeddings provider) -->
         <choose>
@@ -80,13 +90,68 @@
         </choose>
     </inbound>
     <backend>
-        <base />
+        <forward-request buffer-request-body="true" />
     </backend>
     <outbound>
         <base />
-        <!-- Store response in semantic cache (Foundry only) -->
+        <!-- Check if backend returned an error that should trigger fallback -->
         <choose>
-            <when condition="@((string)context.Variables["is-gemini"] != "true")">
+            <when condition="@{
+                var statusCode = context.Response.StatusCode;
+                if (statusCode != 429 && statusCode < 500) return false;
+                var currentModel = (string)context.Variables["served-model"];
+                var fallbackJson = (string)context.Variables["fallback-map"];
+                var fallbackMap = JObject.Parse(fallbackJson);
+                return fallbackMap[currentModel] != null;
+            }">
+                <!-- Determine fallback model and reason -->
+                <set-variable name="fallback-reason" value="@(context.Response.StatusCode == 429 ? "rate-limited" : "server-error")" />
+                <set-variable name="served-model" value="@{
+                    var currentModel = (string)context.Variables["served-model"];
+                    var fallbackJson = (string)context.Variables["fallback-map"];
+                    var fallbackMap = JObject.Parse(fallbackJson);
+                    return (string)fallbackMap[currentModel];
+                }" />
+                <!-- Build fallback URL with the cheaper model deployment -->
+                <set-variable name="fallback-url" value="@{
+                    var baseUrl = (string)context.Variables["foundry-base-url"];
+                    var fallbackModel = (string)context.Variables["served-model"];
+                    var path = context.Request.Url.Path;
+                    var marker = "deployments/";
+                    var idx = path.IndexOf(marker);
+                    var afterDeployments = path.Substring(idx + marker.Length);
+                    var slash = afterDeployments.IndexOf('/');
+                    var operation = slash >= 0 ? afterDeployments.Substring(slash) : "";
+                    return baseUrl + "/deployments/" + fallbackModel + operation + "?" + context.Request.Url.QueryString;
+                }" />
+                <!-- Retry against fallback model using send-request -->
+                <send-request mode="new" response-variable-name="fallback-response" timeout="120" ignore-error="false">
+                    <set-url>@((string)context.Variables["fallback-url"])</set-url>
+                    <set-method>POST</set-method>
+                    <set-header name="Content-Type" exists-action="override">
+                        <value>application/json</value>
+                    </set-header>
+                    <set-body>@((string)context.Variables["original-body"])</set-body>
+                    <authentication-managed-identity resource="https://cognitiveservices.azure.com/" />
+                </send-request>
+                <!-- Replace the original error response with the fallback response -->
+                <return-response response-variable-name="fallback-response">
+                    <set-header name="x-served-model" exists-action="override">
+                        <value>@((string)context.Variables["served-model"])</value>
+                    </set-header>
+                    <set-header name="x-fallback-reason" exists-action="override">
+                        <value>@((string)context.Variables["fallback-reason"])</value>
+                    </set-header>
+                </return-response>
+            </when>
+        </choose>
+        <!-- Normal path: add observability headers -->
+        <set-header name="x-served-model" exists-action="override">
+            <value>@((string)context.Variables["served-model"])</value>
+        </set-header>
+        <!-- Store response in semantic cache (Foundry only, skip on fallback) -->
+        <choose>
+            <when condition="@((string)context.Variables["is-gemini"] != "true" && (string)context.Variables["served-model"] == (string)context.Variables["requested-model"])">
                 <llm-semantic-cache-store duration="${cache_duration}" />
             </when>
         </choose>

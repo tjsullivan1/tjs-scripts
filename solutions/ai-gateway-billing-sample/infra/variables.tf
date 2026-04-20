@@ -210,6 +210,43 @@ variable "gemini_models" {
 }
 
 # -----------------------------------------------------------------------------
+# Circuit Breaker
+# -----------------------------------------------------------------------------
+
+variable "circuit_breaker_failure_count" {
+  description = "Number of failures within the interval that trips the circuit breaker."
+  type        = number
+  default     = 3
+}
+
+variable "circuit_breaker_interval_seconds" {
+  description = "Time window (in seconds) in which failures are counted."
+  type        = number
+  default     = 30
+}
+
+variable "circuit_breaker_trip_duration_seconds" {
+  description = "Duration (in seconds) the circuit stays open after tripping."
+  type        = number
+  default     = 60
+}
+
+variable "circuit_breaker_accept_retry_after" {
+  description = "Whether the circuit breaker respects the backend's Retry-After header (extends open duration)."
+  type        = bool
+  default     = true
+}
+
+variable "model_fallback_map" {
+  description = "Fallback mapping: when a model returns 429/5xx, retry with the mapped model. Models not listed have no fallback."
+  type        = map(string)
+  default = {
+    "gpt-5.1-chat" = "gpt-4o-mini"
+    "gpt-4.1"      = "gpt-4o-mini"
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Billing / Metrics
 # -----------------------------------------------------------------------------
 

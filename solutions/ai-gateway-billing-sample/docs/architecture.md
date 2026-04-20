@@ -71,14 +71,17 @@ for per-consumer billing dashboards via KQL.
 > manually, enable it in the portal under **Application Insights → Usage and
 > estimated costs → Custom metrics (Preview) → With dimensions**.
 
-## Decision 7: Simple Single-Backend Routing
+## Decision 7: Single-Backend Routing with Model-Tier Fallback
 
-**Choice**: Single AI Foundry backend, no load balancing or failover.
+**Choice**: Single AI Foundry backend per provider, with policy-level retry and
+model-tier fallback on failure. No multi-region backend pools.
 
-**Rationale**: More complex routing (priority-based, affinity, health tracking)
-is valuable but orthogonal to billing/metering. Keeping routing simple keeps
-the demo focused and the policy XML readable. The sophisticated routing policy
-exists as a separate reference in the `tjs-apim-test` environment.
+**Rationale**: Multi-region load balancing adds infrastructure complexity that
+distracts from the billing/metering focus of this demo. Instead, the gateway
+uses a circuit breaker + model-tier fallback pattern (see Decision 15) to
+provide resilience within a single region. This demonstrates the policy
+mechanics that also apply to production patterns (multi-region, PTU→PayGo)
+without requiring additional Azure regions or PTU commitments.
 
 > **Note on multi-provider routing**: This sample now demonstrates multi-provider
 > routing with Google Gemini as a second backend (see Decision 12). The same
@@ -291,6 +294,77 @@ and aligns with zero-trust best practices. The APIM managed identity already had
 the same role is sufficient for chat completions. This reduces the secret surface
 to just the Gemini API key (which must be an API key since Google AI doesn't
 support Azure managed identities).
+
+## Decision 15: Circuit Breaker with Model-Tier Fallback
+
+**Choice**: Implement a circuit breaker on the Foundry backend with automatic
+model-tier fallback within the same provider. Cross-provider fallback
+(Foundry↔Gemini) is not included in this phase.
+
+**Fallback matrix**:
+
+| Requested Model | Falls Back To |
+|---|---|
+| `gpt-5.1-chat` | `gpt-4o-mini` |
+| `gpt-4.1` | `gpt-4o-mini` |
+| `gpt-4o-mini` | _(no fallback — returns error)_ |
+
+**Mechanism**:
+- **Native APIM circuit breaker** on the `foundry-chat` backend: trips after
+  repeated 429 (rate limited) or 5xx (server error) responses within a
+  configurable window. Once open, requests fail fast instead of queuing against
+  a degraded backend.
+- **Policy-level retry with model swap**: When a request receives 429 or 5xx
+  and the model has a defined fallback, the policy retries the request against
+  the cheaper model. The request body is buffered (`buffer-request-body`) to
+  allow POST replays.
+- **Observability headers**: `x-served-model` and `x-fallback-reason` response
+  headers indicate when a fallback occurred and which model actually served the
+  request.
+- **Metrics**: `llm-emit-token-metric` emits both the originally-requested model
+  and the model that actually served the request (`Served-Model` dimension),
+  enabling accurate cost reporting even after fallback.
+- **Semantic cache bypass**: When a fallback changes the serving model, the
+  response is NOT stored in the semantic cache to prevent cross-model
+  contamination.
+
+**Rationale**: In a single-region deployment without PTU (Provisioned Throughput
+Units), 429 errors are the most common failure mode — especially with
+`GlobalStandard` deployments that share capacity across all Azure tenants.
+Rather than propagating rate-limit errors to consumers, gracefully degrading to
+a cheaper (and often less-congested) model provides a better experience.
+
+### Production Alternatives
+
+This sample uses model-tier fallback as a pragmatic single-region pattern.
+**In production, stronger resilience patterns exist:**
+
+| Pattern | How It Works | When to Use |
+|---|---|---|
+| **Multi-region failover** | Deploy the same model across 2+ Azure regions. Use APIM backend pools with priority-based routing and circuit breaker. When region A trips, traffic shifts to region B automatically. | When latency SLAs matter and you can accept cross-region data transfer. Most resilient option. |
+| **PTU → PayGo spillover** | Deploy a Provisioned Throughput Unit (PTU) for guaranteed baseline capacity, with a `GlobalStandard` (pay-as-you-go) deployment as overflow. Backend pool routes to PTU first; when PTU returns 429, circuit breaker shifts traffic to PayGo. | When you have predictable baseline load + burst traffic. Optimizes cost while guaranteeing capacity. |
+| **PTU → PayGo + Multi-region** | Combine both: PTU in primary region → PayGo in primary region → PTU/PayGo in secondary region. Priority-ordered backend pool with per-backend circuit breakers. | Maximum resilience for mission-critical workloads. |
+
+> **Why this sample uses model-tier fallback instead**: The customer requires
+> single-region only, and the demo environment uses `GlobalStandard` (PayGo)
+> deployments exclusively. Model-tier fallback demonstrates the circuit breaker
+> mechanics and policy patterns without requiring multi-region infrastructure or
+> PTU commitments. The same APIM backend pool and circuit breaker primitives
+> apply to all patterns above — only the backend topology changes.
+
+### Future Enhancement: Cross-Provider Fallback
+
+Cross-provider fallback (e.g., Foundry→Gemini when all Foundry models are
+degraded) is architecturally possible but deferred because:
+- Different providers have different request/response contracts requiring
+  URL rewrites and body mutations
+- Auth mechanisms differ (managed identity vs API key)
+- Model equivalence is approximate — output quality may change
+- Billing/cost attribution becomes more complex
+
+When implemented, cross-provider fallback should be **opt-in** (via request
+header or APIM product assignment) rather than always-on, so consumers can
+control whether they accept model substitution.
 
 ## Decision 14: Key Vault for Backend Credentials
 
