@@ -193,3 +193,44 @@ Content-Type: application/json
   ],
   "max_completion_tokens": 200
 }
+
+### -----------------------------------------------------------------------
+### 11. Circuit Breaker — Verify fallback headers on normal response
+###     When the primary model succeeds, x-served-model should match the
+###     requested model and x-fallback-reason should NOT be present.
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{model3}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{bravoKey}}
+Authorization: Bearer {{bravoAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "user", "content": "Say hello." }
+  ],
+  "max_completion_tokens": 10
+}
+
+### Expected response headers:
+###   x-served-model: gpt-5.1-chat
+###   (no x-fallback-reason header)
+
+### -----------------------------------------------------------------------
+### 12. Circuit Breaker — Trigger rate limiting to observe fallback
+###     Run this repeatedly (10+ times quickly) against a low-TPM Standard
+###     subscription to trigger 429 → gpt-4o-mini fallback. When fallback
+###     activates, you'll see:
+###       x-served-model: gpt-4o-mini
+###       x-fallback-reason: rate-limited
+### -----------------------------------------------------------------------
+POST {{gateway}}/openai/deployments/{{model1}}/chat/completions?api-version=2024-12-01-preview
+api-key: {{alphaKey}}
+Authorization: Bearer {{alphaAuth.response.body.access_token}}
+Content-Type: application/json
+
+{
+  "messages": [
+    { "role": "user", "content": "Write a 1000-word essay about cloud computing, covering IaaS, PaaS, SaaS, serverless, and edge computing. Include examples from Azure, AWS, and GCP." }
+  ],
+  "max_completion_tokens": 1000
+}

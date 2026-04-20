@@ -44,6 +44,8 @@ class RequestResult:
     completion_tokens: int = 0
     total_tokens: int = 0
     remaining_tokens: str = ""
+    served_model: str = ""
+    fallback_reason: str = ""
     error: str = ""
 
 
@@ -95,6 +97,8 @@ async def send_request(
             status_code=resp.status_code,
             duration_ms=duration_ms,
             remaining_tokens=resp.headers.get("remaining-tokens", ""),
+            served_model=resp.headers.get("x-served-model", ""),
+            fallback_reason=resp.headers.get("x-fallback-reason", ""),
         )
 
         if resp.status_code == 200:
@@ -198,8 +202,26 @@ def print_model_breakdown(results: list[RequestResult]) -> None:
         ok = sum(1 for r in model_results if r.status_code == 200)
         limited = sum(1 for r in model_results if r.status_code == 429)
         tokens = sum(r.total_tokens for r in model_results)
-        print(f"  {model:25s}  {len(model_results):3d} reqs  "
-              f"{ok:3d} ok  {limited:3d} 429  {tokens:>6,} tokens")
+        fallbacks = sum(1 for r in model_results if r.fallback_reason)
+        line = (f"  {model:25s}  {len(model_results):3d} reqs  "
+                f"{ok:3d} ok  {limited:3d} 429  {tokens:>6,} tokens")
+        if fallbacks:
+            line += f"  {fallbacks} fallbacks"
+        print(line)
+
+    # Print fallback summary if any occurred
+    fallback_results = [r for r in results if r.fallback_reason]
+    if fallback_results:
+        print(f"\n  Circuit Breaker Fallbacks: {len(fallback_results)}")
+        by_reason: dict[str, int] = {}
+        by_served: dict[str, int] = {}
+        for r in fallback_results:
+            by_reason[r.fallback_reason] = by_reason.get(r.fallback_reason, 0) + 1
+            by_served[r.served_model] = by_served.get(r.served_model, 0) + 1
+        for reason, count in sorted(by_reason.items()):
+            print(f"    Reason: {reason:20s} → {count} requests")
+        for served, count in sorted(by_served.items()):
+            print(f"    Served by: {served:17s} → {count} requests")
 
 
 async def main(args: argparse.Namespace) -> None:
