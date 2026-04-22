@@ -27,8 +27,8 @@
         <!-- Fallback mapping (injected from Terraform) -->
         <set-variable name="fallback-map" value="${fallback_map_json}" />
         <!-- Route to backend based on model name -->
-        <choose>
 %{ if enable_gemini ~}
+        <choose>
             <when condition="@(new [] { ${gemini_models_csv} }.Contains((string)context.Variables["model-deployment"]))">
                 <!-- Gemini backend: rewrite URL, set Google API key auth -->
                 <set-backend-service id="set-gemini-backend" backend-id="${gemini_backend_id}" />
@@ -53,7 +53,6 @@
                     return body.ToString();
                 }</set-body>
             </when>
-%{ endif ~}
             <otherwise>
                 <!-- Foundry backend with managed identity auth -->
                 <set-backend-service id="set-chat-backend" backend-id="${chat_backend_id}" />
@@ -61,6 +60,12 @@
                 <authentication-managed-identity resource="https://cognitiveservices.azure.com/" />
             </otherwise>
         </choose>
+%{ else ~}
+        <!-- Foundry-only backend (Gemini disabled) -->
+        <set-backend-service id="set-chat-backend" backend-id="${chat_backend_id}" />
+        <set-variable name="is-gemini" value="false" />
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com/" />
+%{ endif ~}
         <!-- Buffer request body to allow retry with different model -->
         <set-variable name="original-body" value="@(context.Request.Body.As&lt;string&gt;(preserveContent: true))" />
         <!-- Build fallback URL (used by send-request if primary fails) -->
