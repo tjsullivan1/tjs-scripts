@@ -12,6 +12,11 @@ output "openai_api_path" {
   value       = "${azurerm_api_management.this.gateway_url}/openai"
 }
 
+output "anthropic_api_path" {
+  description = "Full base URL for the Anthropic Gateway API (Claude Code compatible). Set ANTHROPIC_FOUNDRY_BASE_URL to this value."
+  value       = var.enable_claude ? "${azurerm_api_management.this.gateway_url}/anthropic" : null
+}
+
 output "foundry_endpoint" {
   description = "AI Foundry endpoint."
   value       = azurerm_cognitive_account.foundry.endpoint

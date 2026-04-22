@@ -32,9 +32,11 @@ customMetrics
 // Adjust per-model rates to match your Azure pricing tier. You can find live
 // rates at: https://prices.azure.com/api/retail/prices?$filter=productName eq 'Azure OpenAI'
 let model_pricing = datatable(Model: string, PromptPer1K: real, CompletionPer1K: real) [
-    "gpt-4.1",        0.002,   0.008,
-    "gpt-4o-mini",    0.00015, 0.0006,
-    "gpt-5.1-chat",   0.00125, 0.01,
+    "gpt-4.1",           0.002,    0.008,
+    "gpt-4o-mini",       0.00015,  0.0006,
+    "gpt-5.1-chat",      0.00125,  0.01,
+    "gemini-2.5-flash",  0.00015,  0.0006,
+    "claude-opus-4-6",   0.015,    0.075,
 ];
 customMetrics
 | where name in ("Prompt Tokens", "Completion Tokens")
@@ -63,9 +65,11 @@ customMetrics
 // per-model pricing. Adjust rates to match your Azure pricing tier.
 // ---------------------------------------------------------------------------
 let model_pricing = datatable(Model: string, PromptPer1K: real, CompletionPer1K: real) [
-    "gpt-4.1",        0.002,   0.008,
-    "gpt-4o-mini",    0.00015, 0.0006,
-    "gpt-5.1-chat",   0.00125, 0.01,
+    "gpt-4.1",           0.002,    0.008,
+    "gpt-4o-mini",       0.00015,  0.0006,
+    "gpt-5.1-chat",      0.00125,  0.01,
+    "gemini-2.5-flash",  0.00015,  0.0006,
+    "claude-opus-4-6",   0.015,    0.075,
 ];
 AppRequests
 | where TimeGenerated > ago(7d)

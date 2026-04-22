@@ -159,6 +159,44 @@ resource "azapi_resource" "foundry_project" {
   depends_on = [azurerm_cognitive_account.foundry]
 }
 
+# Anthropic Claude model deployments (azapi because azurerm doesn't support modelProviderData yet)
+resource "azapi_resource" "claude_deployment" {
+  for_each = var.enable_claude ? var.claude_models : {}
+
+  type      = "Microsoft.CognitiveServices/accounts/deployments@2025-10-01-preview"
+  name      = each.key
+  parent_id = azurerm_cognitive_account.foundry.id
+
+  # azapi schema doesn't include modelProviderData yet — disable validation
+  schema_validation_enabled = false
+
+  body = {
+    sku = {
+      name     = each.value.sku
+      capacity = each.value.capacity
+    }
+    properties = {
+      model = {
+        format  = "Anthropic"
+        name    = each.key
+        version = each.value.version
+      }
+      modelProviderData = {
+        organizationName = var.claude_provider_data.organization_name
+        countryCode      = var.claude_provider_data.country_code
+        industry         = var.claude_provider_data.industry
+      }
+      versionUpgradeOption = "OnceNewDefaultVersionAvailable"
+    }
+  }
+
+  depends_on = [azurerm_cognitive_deployment.additional_chat]
+
+  lifecycle {
+    ignore_changes = [body.sku.capacity, body.properties.model.version]
+  }
+}
+
 # =============================================================================
 # Google AI — Gemini API (conditional on enable_gemini)
 # =============================================================================
@@ -337,6 +375,15 @@ resource "azapi_update_resource" "openai_diagnostic_metrics" {
 resource "azurerm_role_assignment" "apim_foundry_openai_user" {
   scope                = azurerm_cognitive_account.foundry.id
   role_definition_name = "Cognitive Services OpenAI User"
+  principal_id         = azurerm_api_management.this.identity[0].principal_id
+}
+
+# Allows APIM to call Foundry Anthropic models via managed identity
+resource "azurerm_role_assignment" "apim_foundry_cognitive_user" {
+  count = var.enable_claude ? 1 : 0
+
+  scope                = azurerm_cognitive_account.foundry.id
+  role_definition_name = "Cognitive Services User"
   principal_id         = azurerm_api_management.this.identity[0].principal_id
 }
 
@@ -559,6 +606,22 @@ resource "azurerm_api_management_backend" "gemini" {
   depends_on = [azurerm_api_management_named_value.gemini_api_key]
 }
 
+# Anthropic backend — Foundry Claude endpoint (managed identity auth)
+resource "azurerm_api_management_backend" "anthropic" {
+  count = var.enable_claude ? 1 : 0
+
+  name                = "foundry-anthropic"
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+  protocol            = "http"
+  url                 = replace(azurerm_cognitive_account.foundry.endpoint, ".cognitiveservices.azure.com/", ".services.ai.azure.com/anthropic")
+
+  tls {
+    validate_certificate_chain = true
+    validate_certificate_name  = true
+  }
+}
+
 # =============================================================================
 # APIM — Products
 # =============================================================================
@@ -671,6 +734,71 @@ resource "azurerm_api_management_product_api" "premium" {
 }
 
 # =============================================================================
+# APIM — Anthropic API Definition (Claude Code compatible)
+# =============================================================================
+
+resource "azurerm_api_management_api" "anthropic" {
+  count = var.enable_claude ? 1 : 0
+
+  name                  = "anthropic-gateway"
+  resource_group_name   = azurerm_resource_group.this.name
+  api_management_name   = azurerm_api_management.this.name
+  display_name          = "Anthropic Gateway"
+  description           = "AI Gateway for Anthropic Claude models via Azure AI Foundry. Claude Code compatible."
+  path                  = "anthropic"
+  protocols             = ["https"]
+  revision              = "1"
+  subscription_required = true
+
+  subscription_key_parameter_names {
+    header = "api-key"
+    query  = "api-key"
+  }
+}
+
+resource "azurerm_api_management_api_operation" "anthropic_post" {
+  count = var.enable_claude ? 1 : 0
+
+  operation_id        = "post-wildcard"
+  api_name            = azurerm_api_management_api.anthropic[0].name
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+  display_name        = "POST Wildcard"
+  method              = "POST"
+  url_template        = "/*"
+}
+
+resource "azurerm_api_management_api_operation" "anthropic_get" {
+  count = var.enable_claude ? 1 : 0
+
+  operation_id        = "get-wildcard"
+  api_name            = azurerm_api_management_api.anthropic[0].name
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+  display_name        = "GET Wildcard"
+  method              = "GET"
+  url_template        = "/*"
+}
+
+resource "azurerm_api_management_product_api" "standard_anthropic" {
+  count = var.enable_claude ? 1 : 0
+
+  api_name            = azurerm_api_management_api.anthropic[0].name
+  product_id          = azurerm_api_management_product.standard.product_id
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+}
+
+resource "azurerm_api_management_product_api" "premium_anthropic" {
+  count = var.enable_claude ? 1 : 0
+
+  api_name            = azurerm_api_management_api.anthropic[0].name
+  product_id          = azurerm_api_management_product.premium.product_id
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+}
+
+# =============================================================================
 # APIM — Policies
 # =============================================================================
 
@@ -700,6 +828,75 @@ resource "azurerm_api_management_api_policy" "openai" {
     azurerm_api_management_backend.chat,
     azurerm_api_management_backend.embeddings,
   ]
+}
+
+# API-level policy: Anthropic (Claude Code compatible routing + metrics)
+resource "azurerm_api_management_api_policy" "anthropic" {
+  count = var.enable_claude ? 1 : 0
+
+  api_name            = azurerm_api_management_api.anthropic[0].name
+  resource_group_name = azurerm_resource_group.this.name
+  api_management_name = azurerm_api_management.this.name
+
+  xml_content = templatefile("${path.module}/policies/api-anthropic.xml", {
+    anthropic_backend_id = azurerm_api_management_backend.anthropic[0].name
+    metric_namespace     = var.metric_namespace
+    tenant_id            = data.azurerm_client_config.current.tenant_id
+    api_audience         = one(azuread_application.api.identifier_uris)
+    api_client_id        = azuread_application.api.client_id
+  })
+
+  depends_on = [azurerm_api_management_backend.anthropic]
+}
+
+# API-level diagnostic: Anthropic — enables Application Insights
+resource "azurerm_api_management_api_diagnostic" "anthropic_appinsights" {
+  count = var.enable_claude ? 1 : 0
+
+  identifier               = "applicationinsights"
+  resource_group_name      = azurerm_resource_group.this.name
+  api_management_name      = azurerm_api_management.this.name
+  api_name                 = azurerm_api_management_api.anthropic[0].name
+  api_management_logger_id = azurerm_api_management_logger.appinsights.id
+
+  sampling_percentage = 100.0
+
+  always_log_errors         = true
+  log_client_ip             = true
+  http_correlation_protocol = "W3C"
+  verbosity                 = "information"
+
+  frontend_request {
+    body_bytes = 8192
+  }
+
+  frontend_response {
+    body_bytes = 8192
+  }
+
+  backend_request {
+    body_bytes = 8192
+  }
+
+  backend_response {
+    body_bytes = 8192
+  }
+}
+
+# Enable custom metrics on Anthropic API diagnostic
+resource "azapi_update_resource" "anthropic_diagnostic_metrics" {
+  count = var.enable_claude ? 1 : 0
+
+  type        = "Microsoft.ApiManagement/service/apis/diagnostics@2024-05-01"
+  resource_id = "${azurerm_api_management.this.id}/apis/${azurerm_api_management_api.anthropic[0].name}/diagnostics/applicationinsights"
+
+  body = {
+    properties = {
+      metrics = true
+    }
+  }
+
+  depends_on = [azurerm_api_management_api_diagnostic.anthropic_appinsights]
 }
 
 # Product-level policy: Standard

@@ -65,7 +65,7 @@
         <set-variable name="original-body" value="@(context.Request.Body.As&lt;string&gt;(preserveContent: true))" />
         <!-- Build fallback URL (used by send-request if primary fails) -->
         <set-variable name="foundry-base-url" value="${foundry_endpoint}openai" />
-        <!-- Emit token metrics to Application Insights (inbound-only policy) -->
+        <!-- Emit token metrics to Application Insights -->
         <llm-emit-token-metric namespace="${metric_namespace}">
             <dimension name="API ID" />
             <dimension name="Subscription ID" />

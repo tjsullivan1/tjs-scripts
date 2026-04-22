@@ -210,6 +210,46 @@ variable "gemini_models" {
 }
 
 # -----------------------------------------------------------------------------
+# Anthropic Claude (Azure AI Foundry)
+# -----------------------------------------------------------------------------
+
+variable "enable_claude" {
+  description = "Enable Anthropic Claude backend via Azure AI Foundry. Deploys the model and creates the APIM API."
+  type        = bool
+  default     = false
+}
+
+variable "claude_models" {
+  description = "Map of Claude model deployments to create. Key is deployment name, value has version, sku, and capacity."
+  type = map(object({
+    version  = string
+    sku      = string
+    capacity = number
+  }))
+  default = {
+    "claude-opus-4-6" = {
+      version  = "1"
+      sku      = "GlobalStandard"
+      capacity = 1
+    }
+  }
+}
+
+variable "claude_provider_data" {
+  description = "Anthropic model provider data required for Claude deployments (organization name, country code, industry)."
+  type = object({
+    organization_name = string
+    country_code      = string
+    industry          = string
+  })
+  default = {
+    organization_name = "AI Gateway Demo"
+    country_code      = "US"
+    industry          = "Technology"
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Circuit Breaker
 # -----------------------------------------------------------------------------
 
@@ -278,6 +318,10 @@ variable "model_pricing" {
     "gemini-2.5-flash" = {
       prompt_per_1k     = 0.00015
       completion_per_1k = 0.0006
+    }
+    "claude-opus-4-6" = {
+      prompt_per_1k     = 0.015
+      completion_per_1k = 0.075
     }
   }
 }

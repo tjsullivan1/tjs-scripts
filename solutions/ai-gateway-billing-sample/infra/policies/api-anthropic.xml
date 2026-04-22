@@ -1,0 +1,83 @@
+<policies>
+    <inbound>
+        <base />
+        <!-- Validate Entra ID JWT (optional — Claude Code can use subscription key only) -->
+        <validate-azure-ad-token tenant-id="${tenant_id}" output-token-variable-name="jwt" failed-validation-error-message="Unauthorized" failed-validation-httpcode="401">
+            <audiences>
+                <audience>${api_audience}</audience>
+                <audience>${api_client_id}</audience>
+            </audiences>
+        </validate-azure-ad-token>
+        <!-- Extract model from request body (Anthropic sends model in body, not URL path) -->
+        <set-variable name="requested-model" value="@{
+            var body = context.Request.Body.As&lt;JObject&gt;(preserveContent: true);
+            return (string)(body["model"] ?? "unknown");
+        }" />
+        <!-- Route to Foundry Anthropic backend with managed identity -->
+        <set-backend-service backend-id="${anthropic_backend_id}" />
+        <authentication-managed-identity resource="https://cognitiveservices.azure.com/" />
+    </inbound>
+    <backend>
+        <forward-request buffer-request-body="true" />
+    </backend>
+    <outbound>
+        <base />
+        <!-- Emit token metrics for non-streaming responses.
+             Anthropic uses input_tokens/output_tokens (not prompt_tokens/completion_tokens),
+             so llm-emit-token-metric cannot parse this format.
+             Streaming responses (text/event-stream) are not metered here. -->
+        <choose>
+            <when condition="@{
+                if (context.Response.StatusCode &gt;= 400) { return false; }
+                var ct = context.Response.Headers.GetValueOrDefault("Content-Type", "").ToLowerInvariant();
+                return ct.Contains("application/json");
+            }">
+                <set-variable name="anthropic-usage" value="@{
+                    var body = context.Response.Body.As&lt;JObject&gt;(preserveContent: true);
+                    var usage = body["usage"];
+                    if (usage == null) { return ""; }
+                    return (usage["input_tokens"]?.ToString() ?? "0") + "," +
+                           (usage["output_tokens"]?.ToString() ?? "0");
+                }" />
+            </when>
+        </choose>
+        <choose>
+            <when condition="@(!string.IsNullOrEmpty((string)context.Variables.GetValueOrDefault("anthropic-usage", "")))">
+                <emit-metric name="Prompt Tokens" namespace="${metric_namespace}" value="@(Convert.ToDouble(((string)context.Variables["anthropic-usage"]).Split(',')[0]))">
+                    <dimension name="API ID" />
+                    <dimension name="Subscription ID" />
+                    <dimension name="User ID" />
+                    <dimension name="Operation ID" />
+                    <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+                    <dimension name="Model" value="@((string)context.Variables["requested-model"])" />
+                </emit-metric>
+                <emit-metric name="Completion Tokens" namespace="${metric_namespace}" value="@(Convert.ToDouble(((string)context.Variables["anthropic-usage"]).Split(',')[1]))">
+                    <dimension name="API ID" />
+                    <dimension name="Subscription ID" />
+                    <dimension name="User ID" />
+                    <dimension name="Operation ID" />
+                    <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+                    <dimension name="Model" value="@((string)context.Variables["requested-model"])" />
+                </emit-metric>
+                <emit-metric name="Total Tokens" namespace="${metric_namespace}" value="@{
+                    var parts = ((string)context.Variables["anthropic-usage"]).Split(',');
+                    return Convert.ToDouble(parts[0]) + Convert.ToDouble(parts[1]);
+                }">
+                    <dimension name="API ID" />
+                    <dimension name="Subscription ID" />
+                    <dimension name="User ID" />
+                    <dimension name="Operation ID" />
+                    <dimension name="Client IP" value="@(context.Request.IpAddress)" />
+                    <dimension name="Model" value="@((string)context.Variables["requested-model"])" />
+                </emit-metric>
+            </when>
+        </choose>
+        <!-- Observability header -->
+        <set-header name="x-served-model" exists-action="override">
+            <value>@((string)context.Variables["requested-model"])</value>
+        </set-header>
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>
