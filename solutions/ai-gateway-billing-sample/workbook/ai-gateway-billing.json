@@ -105,7 +105,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nlet model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.002),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.008),\n    0.0)\n| summarize Tokens = sum(value) by Consumer, Model, TokenType, bin(timestamp, 1d), CostPer1K\n| extend EstimatedCost = Tokens / 1000.0 * CostPer1K\n| summarize\n    TotalTokens = sum(Tokens),\n    TotalCost = sum(EstimatedCost)\n    by Consumer, bin(timestamp, 1d)\n| order by timestamp desc, TotalCost desc",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nlet model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.0),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.0),\n    0.0)\n| summarize Tokens = sum(value) by Consumer, Model, TokenType, bin(timestamp, 1d), CostPer1K\n| extend EstimatedCost = Tokens / 1000.0 * CostPer1K\n| summarize\n    TotalTokens = sum(Tokens),\n    TotalCost = sum(EstimatedCost)\n    by Consumer, bin(timestamp, 1d)\n| order by timestamp desc, TotalCost desc",
         "size": 0,
         "title": "Daily Cost Estimate per Consumer",
         "timeContextFromParameter": "TimeRange",
@@ -131,7 +131,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nlet model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.002),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.008),\n    0.0)\n| summarize Tokens = sum(value) by Consumer, Model, TokenType, bin(timestamp, 1d), CostPer1K\n| extend EstimatedCost = Tokens / 1000.0 * CostPer1K\n| summarize TotalCost = sum(EstimatedCost) by Consumer, bin(timestamp, 1d)\n| render timechart",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nlet model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    SubscriptionId = tostring(customDimensions[\"Subscription ID\"]),\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.0),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.0),\n    0.0)\n| summarize Tokens = sum(value) by Consumer, Model, TokenType, bin(timestamp, 1d), CostPer1K\n| extend EstimatedCost = Tokens / 1000.0 * CostPer1K\n| summarize TotalCost = sum(EstimatedCost) by Consumer, bin(timestamp, 1d)\n| render timechart",
         "size": 0,
         "title": "Cost Trend Over Time (by Consumer)",
         "timeContextFromParameter": "TimeRange",
@@ -145,7 +145,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.002),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.008),\n    0.0)\n| extend EstimatedCost = value / 1000.0 * CostPer1K\n| summarize TotalCost = sum(EstimatedCost) by Model\n| order by TotalCost desc",
+        "query": "let model_pricing = MODEL_PRICING;\ncustomMetrics\n| where name in (\"Prompt Tokens\", \"Completion Tokens\")\n| extend\n    Model = tostring(customDimensions[\"Model\"]),\n    TokenType = name\n| where ('*' in ({Model}) or Model in ({Model}))\n| lookup model_pricing on Model\n| extend CostPer1K = case(\n    TokenType has \"Prompt\", coalesce(PromptPer1K, 0.0),\n    TokenType has \"Completion\", coalesce(CompletionPer1K, 0.0),\n    0.0)\n| extend EstimatedCost = value / 1000.0 * CostPer1K\n| summarize TotalCost = sum(EstimatedCost) by Model\n| order by TotalCost desc",
         "size": 0,
         "title": "Cost Breakdown by Model",
         "timeContextFromParameter": "TimeRange",
@@ -263,7 +263,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "requests\n| where url has \"/openai/\"\n| extend Model = extract(@\"/deployments/([^/]+)/\", 1, url)\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize\n    AvgDuration = round(avg(duration), 0),\n    P50 = round(percentile(duration, 50), 0),\n    P90 = round(percentile(duration, 90), 0),\n    P99 = round(percentile(duration, 99), 0),\n    RequestCount = count()\n    by Model\n| order by RequestCount desc",
+        "query": "requests\n| where url has \"/openai/\" or url has \"/anthropic/\"\n| extend Model = case(\n    url has \"/deployments/\", extract(@\"/deployments/([^/]+)/\", 1, url),\n    url has \"/anthropic/\", tostring(customDimensions[\"Model\"]),\n    \"unknown\")\n| where isnotempty(Model)\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize\n    AvgDuration = round(avg(duration), 0),\n    P50 = round(percentile(duration, 50), 0),\n    P90 = round(percentile(duration, 90), 0),\n    P99 = round(percentile(duration, 99), 0),\n    RequestCount = count()\n    by Model\n| order by RequestCount desc",
         "size": 0,
         "title": "Response Latency by Model (ms)",
         "timeContextFromParameter": "TimeRange",
@@ -277,7 +277,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "requests\n| where url has \"/openai/\"\n| extend Model = extract(@\"/deployments/([^/]+)/\", 1, url)\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize AvgDuration = avg(duration) by Model, bin(timestamp, 5m)\n| render timechart",
+        "query": "requests\n| where url has \"/openai/\" or url has \"/anthropic/\"\n| extend Model = case(\n    url has \"/deployments/\", extract(@\"/deployments/([^/]+)/\", 1, url),\n    url has \"/anthropic/\", tostring(customDimensions[\"Model\"]),\n    \"unknown\")\n| where isnotempty(Model)\n| where ('*' in ({Model}) or Model in ({Model}))\n| summarize AvgDuration = avg(duration) by Model, bin(timestamp, 5m)\n| render timechart",
         "size": 0,
         "title": "Average Response Time Over Time (by Model)",
         "timeContextFromParameter": "TimeRange",
@@ -291,7 +291,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nrequests\n| where url has \"/openai/\"\n| extend\n    StatusBucket = case(\n        resultCode startswith \"2\", \"2xx Success\",\n        resultCode startswith \"4\", \"4xx Client Error\",\n        resultCode startswith \"5\", \"5xx Server Error\",\n        strcat(\"Other (\", resultCode, \")\")),\n    SubscriptionId = tostring(customDimensions[\"Subscription Name\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| summarize Count = count() by StatusBucket, bin(timestamp, 1h)\n| render timechart",
+        "query": "let subscription_names = SUBSCRIPTION_LOOKUP;\nrequests\n| where url has \"/openai/\" or url has \"/anthropic/\"\n| extend\n    StatusBucket = case(\n        resultCode startswith \"2\", \"2xx Success\",\n        resultCode startswith \"4\", \"4xx Client Error\",\n        resultCode startswith \"5\", \"5xx Server Error\",\n        strcat(\"Other (\", resultCode, \")\")),\n    SubscriptionId = tostring(customDimensions[\"Subscription Name\"])\n| lookup subscription_names on SubscriptionId\n| extend Consumer = coalesce(TeamName, SubscriptionId)\n| where ('*' in ({Consumer}) or Consumer in ({Consumer}))\n| summarize Count = count() by StatusBucket, bin(timestamp, 1h)\n| render timechart",
         "size": 0,
         "title": "Response Status Over Time",
         "timeContextFromParameter": "TimeRange",
@@ -312,7 +312,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "requests\n| where url has \"/openai/\"\n| extend IsCacheHit = duration < 100\n| summarize\n    TotalRequests = count(),\n    CacheHits = countif(IsCacheHit),\n    BackendCalls = countif(not(IsCacheHit))\n| extend CacheHitRate = round(100.0 * CacheHits / TotalRequests, 1)",
+        "query": "// Semantic cache is only enabled for OpenAI APIs (not Anthropic)\nrequests\n| where url has \"/openai/\"\n| extend IsCacheHit = duration < 100\n| summarize\n    TotalRequests = count(),\n    CacheHits = countif(IsCacheHit),\n    BackendCalls = countif(not(IsCacheHit))\n| extend CacheHitRate = round(100.0 * CacheHits / TotalRequests, 1)",
         "size": 4,
         "title": "Cache Hit Rate (Overall)",
         "timeContextFromParameter": "TimeRange",
@@ -331,7 +331,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "requests\n| where url has \"/openai/\"\n| extend IsCacheHit = duration < 100\n| summarize\n    CacheHits = countif(IsCacheHit),\n    BackendCalls = countif(not(IsCacheHit))\n    by bin(timestamp, 1h)\n| render timechart",
+        "query": "// Semantic cache is only enabled for OpenAI APIs (not Anthropic)\nrequests\n| where url has \"/openai/\"\n| extend IsCacheHit = duration < 100\n| summarize\n    CacheHits = countif(IsCacheHit),\n    BackendCalls = countif(not(IsCacheHit))\n    by bin(timestamp, 1h)\n| render timechart",
         "size": 0,
         "title": "Cache Hits vs Backend Calls Over Time",
         "timeContextFromParameter": "TimeRange",

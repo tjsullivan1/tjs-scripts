@@ -271,6 +271,7 @@ ai-gateway-billing-sample/
 │   ├── terraform.tfvars.example     # Example variable values
 │   └── policies/
 │       ├── api-openai.xml           # API-level: routing, JWT, metrics, cache
+│       ├── api-anthropic.xml        # API-level: Claude routing, JWT, custom metrics
 │       ├── product-standard.xml     # Standard tier token limits
 │       └── product-premium.xml      # Premium tier token limits
 ├── workbook/
@@ -285,6 +286,32 @@ ai-gateway-billing-sample/
     ├── architecture.md              # Design decisions
     └── testing.md                   # Testing guide and troubleshooting
 ```
+
+## Known Limitations
+
+### Anthropic Claude — APIM SKU Requirement
+
+The `llm-token-limit` and `llm-emit-token-metric` policies used for token rate
+limiting and metering are currently being rolled out to **APIM v2 SKUs** (Basicv2,
+StandardV2). If you plan to use this gateway for Claude traffic and rely on
+product-level token rate limiting, ensure you deploy an APIM v2 SKU. The Developer
+SKU may not support these policies for non-OpenAI backends.
+
+### Anthropic Claude — Streaming Token Metrics
+
+The APIM custom metrics (`emit-metric`) in the Anthropic policy only capture token
+usage from **non-streaming** (`application/json`) responses. Streaming responses
+(`text/event-stream`), which are the default for Claude Code, are **not metered**
+in the APIM custom metrics.
+
+This is because:
+- `llm-emit-token-metric` only parses OpenAI-format responses (`prompt_tokens`/`completion_tokens`), not Anthropic format (`input_tokens`/`output_tokens`).
+- Parsing SSE chunks in APIM outbound policy expressions is unreliable.
+
+**Workaround**: Use Azure AI Foundry's built-in token metrics for streaming usage
+tracking. Foundry emits token consumption metrics at the backend level regardless
+of response format. The APIM custom metrics remain useful for per-consumer
+attribution on non-streaming requests.
 
 ## Further Reading
 
