@@ -37,7 +37,9 @@ provider "azapi" {}
 provider "azuread" {}
 
 provider "google" {
-  project               = var.enable_gemini ? var.gcp_project_id : null
-  billing_project       = var.enable_gemini ? var.gcp_project_id : null
+  # Avoid ADC lookup for Azure-only deployments when Gemini is disabled.
+  project               = var.enable_gemini ? var.gcp_project_id : "placeholder-project"
+  billing_project       = var.enable_gemini ? var.gcp_project_id : "placeholder-project"
   user_project_override = var.enable_gemini
+  access_token          = var.enable_gemini ? null : "not-used-when-gemini-disabled"
 }

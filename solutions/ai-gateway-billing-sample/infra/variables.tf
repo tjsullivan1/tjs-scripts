@@ -78,7 +78,7 @@ variable "additional_chat_models" {
       version = "2024-07-18"
     }
     "gpt-5.1-chat" = {
-      version = "2025-06-01"
+      version = "2025-11-13"
     }
   }
 }
