@@ -59,9 +59,10 @@ graph LR
 
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.9
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) — logged in (`az login`)
-- An Azure subscription with permissions to create:
-  - Resource groups, Cognitive Services (AI Foundry), API Management, Key Vault
-  - Entra ID app registrations (requires Application Administrator or equivalent)
+- An Azure subscription with permissions to:
+  - Create resource groups, Cognitive Services (AI Foundry), API Management, Key Vault
+  - Create Entra ID app registrations (requires Application Administrator or equivalent)
+  - Register resource providers
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — Python package runner
 - [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client) VS Code extension (optional, for `.http` tests)
 - *(Gemini only)* [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) — logged in (`gcloud auth application-default login`)
