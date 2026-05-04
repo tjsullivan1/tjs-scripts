@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.DataProtection;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorPages();
+builder.Services.AddHealthChecks();
 
 // Configure Data Protection to use shared Azure Blob Storage
 // This ensures both slots can decrypt each other's session cookies
@@ -41,6 +42,7 @@ app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
 app.UseSession();
+app.MapHealthChecks("/healthz");
 app.MapRazorPages();
 
 app.Run();

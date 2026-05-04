@@ -48,6 +48,9 @@ resource "azurerm_linux_web_app" "app" {
   webdeploy_publish_basic_authentication_enabled = false
 
   site_config {
+    health_check_path                 = "/healthz"
+    health_check_eviction_time_in_min = 5
+
     application_stack {
       dotnet_version = "8.0"
     }
@@ -57,7 +60,6 @@ resource "azurerm_linux_web_app" "app" {
     "SLOT_NAME"                             = "production"
     "SLOT_BANNER_COLOR"                     = "#0078d4"
     "DataProtection__BlobUri"               = "${azurerm_storage_account.dp_keys.primary_blob_endpoint}data-protection-keys/keys.xml"
-    "WEBSITE_RUN_FROM_PACKAGE"              = "1"
   }
 
   identity {
@@ -74,6 +76,9 @@ resource "azurerm_linux_web_app_slot" "staging" {
   webdeploy_publish_basic_authentication_enabled = false
 
   site_config {
+    health_check_path                 = "/healthz"
+    health_check_eviction_time_in_min = 5
+
     application_stack {
       dotnet_version = "8.0"
     }
@@ -83,7 +88,6 @@ resource "azurerm_linux_web_app_slot" "staging" {
     "SLOT_NAME"                             = "staging"
     "SLOT_BANNER_COLOR"                     = "#e74c3c"
     "DataProtection__BlobUri"               = "${azurerm_storage_account.dp_keys.primary_blob_endpoint}data-protection-keys/keys.xml"
-    "WEBSITE_RUN_FROM_PACKAGE"              = "1"
   }
 
   identity {
@@ -142,6 +146,13 @@ resource "azurerm_cdn_frontdoor_origin_group" "app" {
   cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.afd.id
 
   load_balancing {}
+
+  health_probe {
+    path                = "/healthz"
+    protocol            = "Https"
+    interval_in_seconds = 30
+    request_type        = "GET"
+  }
 }
 
 resource "azurerm_cdn_frontdoor_origin" "app" {

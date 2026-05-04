@@ -27,3 +27,8 @@ output "storage_account_name" {
   description = "Storage account for Data Protection keys"
   value       = azurerm_storage_account.dp_keys.name
 }
+
+output "custom_domain_url" {
+  description = "Custom domain URL via Front Door"
+  value       = "https://${var.custom_domain_name}"
+}
