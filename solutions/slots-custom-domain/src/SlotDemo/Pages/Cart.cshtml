@@ -1,0 +1,67 @@
+@page
+@model SlotDemo.Pages.CartModel
+@{
+    ViewData["Title"] = "Shopping Cart";
+}
+
+<h1>Shopping Cart</h1>
+<p class="lead">Items are stored in server-side session. When slot stickiness breaks, your cart disappears.</p>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">Add Item</div>
+            <div class="card-body">
+                <form method="post" asp-page-handler="Add">
+                    <div class="input-group">
+                        <input type="text" name="item" class="form-control" placeholder="Item name..." required />
+                        <button type="submit" class="btn btn-primary">Add to Cart</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">Quick Add</div>
+            <div class="card-body">
+                @foreach (var sample in new[] { "Laptop", "Keyboard", "Mouse", "Monitor", "Headphones" })
+                {
+                    <form method="post" asp-page-handler="Add" class="d-inline">
+                        <input type="hidden" name="item" value="@sample" />
+                        <button type="submit" class="btn btn-outline-primary btn-sm m-1">@sample</button>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Your Cart (@Model.CartItems.Count items)</span>
+                @if (Model.CartItems.Count > 0)
+                {
+                    <form method="post" asp-page-handler="Clear">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Clear All</button>
+                    </form>
+                }
+            </div>
+            <ul class="list-group list-group-flush">
+                @if (Model.CartItems.Count == 0)
+                {
+                    <li class="list-group-item text-muted">Cart is empty</li>
+                }
+                @foreach (var item in Model.CartItems)
+                {
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        @item
+                        <form method="post" asp-page-handler="Remove">
+                            <input type="hidden" name="item" value="@item" />
+                            <button type="submit" class="btn btn-outline-danger btn-sm">&times;</button>
+                        </form>
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+</div>

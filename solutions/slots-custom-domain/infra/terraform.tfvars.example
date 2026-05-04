@@ -1,0 +1,6 @@
+location                = "eastus2"
+project_name            = "slotdemo"
+custom_domain_name      = "app.example.com"
+dns_zone_name           = "example.com"
+dns_zone_resource_group = "rg-dns"
+staging_traffic_percent = 50

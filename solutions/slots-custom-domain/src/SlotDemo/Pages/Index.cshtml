@@ -1,0 +1,34 @@
+@page
+@model SlotDemo.Pages.IndexModel
+@{
+    ViewData["Title"] = "Home";
+}
+
+<div class="text-center">
+    <h1>Slot Routing Cookie Demo</h1>
+    <p class="lead">This page tracks a visit counter in server-side session state.</p>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Visit Counter</h5>
+        <p class="display-4">@Model.VisitCount</p>
+        <p class="text-muted">
+            Each page load increments this counter. If slot routing cookies are blocked,
+            you may see this counter reset as requests bounce between slots with separate
+            in-memory session stores.
+        </p>
+        <form method="post" asp-page-handler="Reset">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Reset Counter</button>
+        </form>
+    </div>
+</div>
+
+<div class="alert alert-info">
+    <strong>How to test:</strong>
+    <ol class="mb-0">
+        <li>Visit this page via the <strong>direct App Service URL</strong> — counter increments reliably</li>
+        <li>Visit via the <strong>Front Door URL</strong> — counter may reset on refresh as slot affinity breaks</li>
+        <li>Check the diagnostics panel below to see which slot is serving each request</li>
+    </ol>
+</div>

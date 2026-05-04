@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - Slot Demo</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body>
+    @{
+        var slotName = Environment.GetEnvironmentVariable("SLOT_NAME") ?? "unknown";
+        var bannerColor = Environment.GetEnvironmentVariable("SLOT_BANNER_COLOR") ?? "#6c757d";
+        var hostname = Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME") ?? System.Net.Dns.GetHostName();
+        var sessionId = Context.Session.Id;
+        var hostHeader = Context.Request.Headers["Host"].ToString();
+        var routingCookie = Context.Request.Cookies["x-ms-routing-name"];
+        var tipMixCookie = Context.Request.Cookies["TiPMix"];
+    }
+
+    <div style="background-color: @bannerColor; color: white; padding: 4px 0; text-align: center; font-size: 0.85rem;">
+        Slot: <strong>@slotName</strong> | Host: @hostname
+    </div>
+
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">🔀 Slot Demo</a>
+            <div class="navbar-nav">
+                <a class="nav-link" asp-page="/Index">Home</a>
+                <a class="nav-link" asp-page="/Cart">Cart</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        @RenderBody()
+    </div>
+
+    <!-- Diagnostics Panel -->
+    <div class="container mt-5 mb-4">
+        <div class="card border-secondary">
+            <div class="card-header bg-secondary text-white">
+                🔍 Diagnostics
+            </div>
+            <div class="card-body">
+                <table class="table table-sm table-bordered mb-0">
+                    <tbody>
+                        <tr>
+                            <th style="width:30%">Slot Name</th>
+                            <td><span class="badge" style="background-color: @bannerColor">@slotName</span></td>
+                        </tr>
+                        <tr>
+                            <th>App Service Hostname</th>
+                            <td><code>@hostname</code></td>
+                        </tr>
+                        <tr>
+                            <th>Request Host Header</th>
+                            <td><code>@hostHeader</code></td>
+                        </tr>
+                        <tr>
+                            <th>Session ID</th>
+                            <td><code>@sessionId</code></td>
+                        </tr>
+                        <tr>
+                            <th>x-ms-routing-name Cookie</th>
+                            <td>
+                                @if (routingCookie != null)
+                                {
+                                    <span class="badge bg-success">✅ Present: @routingCookie</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger">❌ Missing — slot stickiness may not work</span>
+                                }
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>TiPMix Cookie</th>
+                            <td>
+                                @if (tipMixCookie != null)
+                                {
+                                    <span class="badge bg-success">✅ Present: @tipMixCookie</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark">Not present</span>
+                                }
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Cross-Domain?</th>
+                            <td>
+                                @if (!hostHeader.Contains("azurewebsites.net"))
+                                {
+                                    <span class="badge bg-danger">⚠️ Yes — Host header doesn't match azurewebsites.net cookie domain</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-success">No — same domain</span>
+                                }
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <footer class="text-center text-muted py-3">
+        <small>Slot Cookie Cross-Domain Demo | Azure App Service Deployment Slots</small>
+    </footer>
+</body>
+</html>
