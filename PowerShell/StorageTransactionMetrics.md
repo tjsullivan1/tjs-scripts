@@ -4,6 +4,7 @@
 Azure Monitor **observed request counts** across explicitly selected storage
 accounts. It returns flat `PSCustomObject` records for pipelines, CSV, JSON and
 downstream scripts. It does not calculate prices or use Cost Management.
+Results default to **UTC calendar-month totals** per account and category.
 
 ## Scope and prerequisites
 
@@ -44,8 +45,10 @@ $ids = @(
     '/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/analytics/providers/Microsoft.Storage/storageAccounts/lakeaccount'
     '/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/apps/providers/Microsoft.Storage/storageAccounts/blobaccount'
 )
-$end = [datetimeoffset]([datetime]::UtcNow.Date)
-$start = $end.AddDays(-7)
+# Last completed UTC calendar month.
+$now = [datetimeoffset]::UtcNow
+$end = [datetimeoffset]::new($now.Year, $now.Month, 1, 0, 0, 0, [timespan]::Zero)
+$start = $end.AddMonths(-1)
 
 $results = @($ids | Get-AzStorageTransactionMetric `
     -StartTime $start -EndTime $end -IncludeDetail -ErrorAction Stop)
@@ -66,9 +69,22 @@ auditable.
 
 ## Output and exports
 
-Each account/time chunk produces one `AccountTotal` and eight `Summary` rows.
-With `-IncludeDetail`, it also produces one `Detail` row per returned metric
-series. A chunk is at most 24 hours by default; `-ChunkHours 1` uses hourly chunks.
+Each account/month produces one `AccountTotal` and eight `Summary` rows.
+With `-IncludeDetail`, it also produces one `Detail` row per distinct
+API/response/tier/geo/authentication/transaction-type combination in that month.
+Counts for identical dimensions are combined across verified chunks; different
+dimension values are never merged.
+
+The collector still queries and reconciles small windows, at most 24 hours by
+default; `-ChunkHours 1` uses hourly queries without changing the monthly output.
+Queries stop at UTC month boundaries. `-SummaryPeriod Chunk` returns the original
+per-query-window records instead of monthly totals.
+
+For arbitrary date ranges, the first/last month can be partial. `Month` identifies
+the UTC calendar month, `StartTime`/`EndTime` give the actual collected range, and
+`IsPartialMonth` prevents a partial or month-to-date count from looking like a
+full-month total. Counts are never extrapolated. An exclusive end at the first
+instant of a month does not create a row for that month.
 Account configuration is read once at collection time, not reconstructed for
 historical dates.
 
@@ -78,7 +94,10 @@ historical dates.
 | `SubscriptionId`, `ResourceGroupName`, `StorageAccountName`, `ResourceId` | Explicit account identity |
 | `MetricResourceId` | Blob service queried |
 | `Location`, `AccountKind`, `SkuName`, `IsHnsEnabled`, `AccountDefaultAccessTier` | Current account configuration; SKU includes redundancy |
-| `StartTime`, `EndTime` | Chunk boundaries in UTC, serialized as ISO 8601 strings |
+| `StartTime`, `EndTime` | Actual collected period boundaries in UTC, serialized as ISO 8601 strings |
+| `SummaryPeriod` | `Month` (default) or `Chunk` |
+| `Month` | UTC calendar month, `yyyy-MM`; null on errors |
+| `IsPartialMonth` | Whether monthly coverage is less than the full month; null for chunk/error rows |
 | `Category` | Operation category; null on account totals and errors |
 | `RequestCount` | Observed Transactions Total, or null when unavailable |
 | `ApiName`, `ResponseType`, `Tier`, `GeoType`, `Authentication`, `TransactionType` | Original dimension values on detail rows; null on summaries |
@@ -98,18 +117,20 @@ $results | Export-Csv -LiteralPath .\storage-transactions.csv -NoTypeInformation
 ConvertTo-Json -InputObject $results -Depth 4 |
     Set-Content -LiteralPath .\storage-transactions.json -Encoding utf8
 
-# Only combine category summaries after checking every account and chunk.
+# Only combine category summaries after checking every account and period.
 if (@($results | Where-Object {
     $_.RecordType -eq 'Error' -or $_.CompletenessStatus -ne 'Reconciled'
 }).Count) {
-    throw 'At least one account/chunk is failed or incomplete; do not aggregate.'
+    throw 'At least one account/period is failed or incomplete; do not aggregate.'
 }
 $results | Where-Object RecordType -eq 'Summary' |
-    Group-Object SubscriptionId, StorageAccountName, Category |
+    Group-Object ResourceId, Month, Category |
     ForEach-Object {
         [pscustomobject]@{
             SubscriptionId = $_.Group[0].SubscriptionId
             StorageAccountName = $_.Group[0].StorageAccountName
+            ResourceId = $_.Group[0].ResourceId
+            Month = $_.Group[0].Month
             Category = $_.Group[0].Category
             ObservedRequestCount = ($_.Group | Measure-Object RequestCount -Sum).Sum
         }
@@ -121,6 +142,64 @@ $results | Where-Object { $_.RecordType -eq 'Detail' -and $_.ResponseType -ne 'S
 ```
 
 CSV represents null as an empty cell; JSON preserves `null` explicitly.
+To see just the total transactions per account/month, filter
+`$results | Where-Object RecordType -eq 'AccountTotal'`. Do not add category
+summaries to those totals.
+
+## Cross-checking Cost Management
+
+This collector remains Azure Monitor-only. A cost comparison needs a separate
+source of **billed usage quantities**, not just the currency totals in Cost
+Analysis. The smallest first check is a downloaded usage-details CSV for one
+completed month and the same account IDs, plus this script's monthly results
+with `-IncludeDetail`.
+
+The data access route depends on the billing offer:
+
+- For Visual Studio or MOSP/pay-as-you-go subscriptions, Microsoft recommends
+  [Exports or the Consumption Usage Details API](https://learn.microsoft.com/en-us/azure/cost-management-billing/automate/get-usage-details-legacy-customer).
+  The newer Cost Details report API does not currently support those offers.
+  A portal usage-details download is also suitable for a one-off comparison;
+  an existing export avoids creating new resources.
+- For EA/MCA, the [Cost Details report API](https://learn.microsoft.com/en-us/azure/cost-management-billing/automate/get-small-usage-datasets-on-demand)
+  generates an asynchronous downloadable report. Automation must poll with
+  `Retry-After` and read every report partition. Exports are another option.
+
+The identity needs [cost-data read access](https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/assign-access-acm-data),
+typically Cost Management Reader at subscription scope, with any required
+EA/MCA billing visibility settings enabled. Azure Monitor permissions alone
+do not establish this access. Reading an export from Blob Storage additionally
+requires data-plane read access to its destination. Creating a scheduled export
+requires export-management and destination-storage permissions; a CSV importer
+does not.
+
+A comparison would:
+
+1. Read the offer-specific [usage fields](https://learn.microsoft.com/en-us/azure/cost-management-billing/automate/understand-usage-details-fields):
+   resource ID (`ResourceId`/`InstanceId`), usage date/range, `MeterId`,
+   `MeterName`, meter subcategory/product, `Quantity`/`UsageQuantity`,
+   `UnitOfMeasure`, charge type and, optionally, actual cost and currency.
+2. Match the exact accounts and UTC usage period; filter Blob/ADLS operation
+   meters rather than including Files/Queue/Table, capacity, retrieval or
+   networking charges. Preserve tier, redundancy, region and meter identity.
+3. Verify the units for each meter before normalizing billed quantities into
+   transaction counts. Never assume every operation meter has a 10,000-operation
+   unit, or derive quantities by dividing cost by calculator prices. Query
+   acceleration scanned/returned meters, if present, remain separate byte/data
+   quantities with their own verified units.
+4. Report observed requests and normalized billed quantities side by side,
+   with differences and mapping/coverage status. Keep unknown meters and missing
+   data visible rather than treating them as zero. Use a settled historical month
+   and account for late usage, refunds/corrections, credits and offer-specific
+   reporting dates. Platform metrics cover only the last 93 days, so older months
+   need previously saved metric results.
+
+Exact equality is not expected: Azure Monitor includes failed/free requests,
+and ADLS size-based charging, iterative operations and other billing rules can
+produce multiple billed transactions from one request. Keep response/tier
+details for diagnosis rather than applying an invented billability filter.
+The billed query-acceleration quantities can validate those costs even though
+Azure Monitor cannot supply the corresponding byte counts.
 
 ## Operation mappings and billing limitations
 
@@ -248,6 +327,13 @@ without an explicit `Success` stays unknown.
 `Reconciled` does not promise that every minute had telemetry or that Azure
 will never revise recent data.
 
+Monthly rollups preserve these semantics. Any missing unsplit chunk Total makes
+the month's `AccountTotal` null. Any incomplete chunk makes all monthly category
+summaries null and marks every record in that month `UnverifiableMissingData`.
+Detail groups with missing counts are null; other detail groups retain their
+observed counts, but the month is still incomplete. Null counts are never skipped
+to present a partial sum as a complete monthly total.
+
 On an account/query failure, the function writes to the error stream, discards
 all buffered rows for that account, emits one null-valued `Error` record, and
 continues to other accounts. Use `-ErrorAction Stop` to fail the whole invocation
@@ -275,8 +361,8 @@ if ($test.FailedCount) { throw "$($test.FailedCount) tests failed." }
 
 Tests cover documented mappings, account-column differences, dimensions,
 aggregation, missing versus zero, unavailable acceleration data, multiple
-accounts/subscriptions, failures, chunk boundaries and completeness checks.
-Live Azure behavior has not been validated in the development environment.
+accounts/subscriptions, failures, chunk/month boundaries, partial-month coverage
+and completeness checks.
 Before relying on a production run, compare one completed window's
 `AccountTotal` and detailed splits with Azure Monitor Metrics Explorer on the
 same Blob service, aggregation, window and dimensions.
@@ -285,3 +371,8 @@ same Blob service, aggregation, window and dimensions.
 
 Run once against six Standard_LRS StorageV2 accounts (one subscription, 7 UTC days, 24h chunks): all accounts returned without errors and every chunk reconciled split vs. unsplit totals. Idle accounts returned explicit zeros. Counts were not compared with Portal Metrics Explorer.
 
+Monthly output was subsequently checked live for the same six accounts and
+seven-day window. Each monthly total/category matched the sum of the saved
+daily records, and the October period was correctly marked as partial.
+Monthly CSV/JSON artifacts were saved separately from the original daily CSV.
+This was not a full-month live run or a Cost Management reconciliation.

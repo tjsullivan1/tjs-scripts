@@ -23,6 +23,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         $script:badAccount = $false
         $script:splitCalls = 0
         $script:failSecondChunk = $false
+        $script:missingSecondChunk = $false
         Mock Get-AzContext {
             $script:contexts
         }
@@ -56,6 +57,9 @@ Describe 'Get-AzStorageTransactionMetric' {
                 }
             } else {
                 $series = @(@{ data = @(@{ total = $script:unsplit }) })
+            }
+            if ($script:missingSecondChunk -and $script:splitCalls -eq 2) {
+                $series[0].data[0].total = $null
             }
             [pscustomobject]@{ StatusCode = 200; Content = (@{
                 value = @(@{ name = @{ value = 'Transactions' }; unit = 'Count'
@@ -358,7 +362,7 @@ Describe 'Get-AzStorageTransactionMetric' {
 
     It 'chunks adjacent windows without overlapping or summing account-parent metrics' {
         $script:end = $script:start.AddHours(3)
-        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 2)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 2 -SummaryPeriod Chunk)
         $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
         $totals.Count | Should Be 2
         $totals[0].EndTime | Should Be $totals[1].StartTime
@@ -366,6 +370,102 @@ Describe 'Get-AzStorageTransactionMetric' {
         Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 2 -Exactly -ParameterFilter {
             $Path -match 'aggregation=Total&interval=FULL' -and $Path -match 'top=10000'
         }
+    }
+
+    It 'defaults to monthly totals and merges identical detail dimensions across chunks' {
+        $script:start = [datetimeoffset]::new([datetime]::UtcNow.Year, [datetime]::UtcNow.Month, 1, 0, 0, 0, [timespan]::Zero).AddMonths(-1)
+        $script:end = $script:start.AddHours(3)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 1 -IncludeDetail)
+        $rows.Count | Should Be 10
+        $total = $rows | Where-Object RecordType -eq 'AccountTotal'
+        $total.RequestCount | Should Be 9
+        $total.SummaryPeriod | Should Be 'Month'
+        $total.Month | Should Be $script:start.ToString('yyyy-MM')
+        $total.IsPartialMonth | Should Be $true
+        $total.StartTime | Should Be $script:start.ToString('o')
+        $total.EndTime | Should Be $script:end.ToString('o')
+        ($rows | Where-Object RecordType -eq 'Detail').RequestCount | Should Be 9
+        ($rows | Where-Object Category -eq 'Reads' | Where-Object RecordType -eq 'Summary').RequestCount | Should Be 9
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 6 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+    }
+
+    It 'splits queries at UTC month boundaries even when ChunkHours would cross them' {
+        $boundary = [datetimeoffset]::new([datetime]::UtcNow.Year, [datetime]::UtcNow.Month, 1, 0, 0, 0, [timespan]::Zero).AddMonths(-1)
+        $script:start = $boundary.AddHours(-1)
+        $script:end = $boundary.AddHours(1)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.ToOffset([timespan]::FromHours(-5)) -EndTime $script:end -IncludeDetail)
+        $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
+        $totals.Count | Should Be 2
+        $totals[0].Month | Should Be $script:start.ToString('yyyy-MM')
+        $totals[1].Month | Should Be $boundary.ToString('yyyy-MM')
+        $totals[0].EndTime | Should Be $boundary.ToString('o')
+        $totals[1].StartTime | Should Be $boundary.ToString('o')
+        $totals[0].RequestCount | Should Be 3
+        $totals[1].RequestCount | Should Be 3
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 4 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+    }
+
+    It 'marks a complete calendar month and excludes the next month at an exclusive end' {
+        $script:end = [datetimeoffset]::new([datetime]::UtcNow.Year, [datetime]::UtcNow.Month, 1, 0, 0, 0, [timespan]::Zero)
+        $script:start = $script:end.AddMonths(-1)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end)
+        $rows.Count | Should Be 9
+        $rows[0].IsPartialMonth | Should Be $false
+        $rows[0].RequestCount | Should Be (3 * ($script:end - $script:start).TotalDays)
+        $rows[0].EndTime | Should Be $script:end.ToString('o')
+    }
+
+    It 'does not hide a missing chunk in monthly totals or category summaries' {
+        $script:end = $script:start.AddHours(2)
+        $script:missingSecondChunk = $true
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 1 -IncludeDetail -WarningAction SilentlyContinue)
+        $rows.Count | Should Be 10
+        ($null -eq $rows[0].RequestCount) | Should Be $true
+        @($rows | Where-Object { $_.RecordType -eq 'Summary' -and $null -ne $_.RequestCount }).Count | Should Be 0
+        ($null -eq ($rows | Where-Object RecordType -eq 'Detail').RequestCount) | Should Be $true
+        @($rows | Where-Object CompletenessStatus -ne 'UnverifiableMissingData').Count | Should Be 0
+    }
+
+    It 'keeps monthly details separated by tier and response type' {
+        $script:end = $script:start.AddHours(2)
+        $script:operations += @{ Api = 'GetBlob'; Total = 2; Response = 'AuthenticationError'; Tier = 'Cool' }
+        $script:unsplit = 5
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 1 -IncludeDetail)
+        @($rows | Where-Object RecordType -eq 'Detail').Count | Should Be 2
+        ($rows | Where-Object ApiName -eq 'GetBlob' | Where-Object Tier -eq 'Cool').RequestCount | Should Be 4
+        $rows[0].RequestCount | Should Be 10
+    }
+
+    It 'never combines monthly counts across accounts' {
+        $script:end = $script:start.AddHours(2)
+        $other = $script:id.Replace('testaccount', 'otheraccount')
+        $rows = @(@($script:id, $other) | Get-AzStorageTransactionMetric -StartTime $script:start -EndTime $script:end -ChunkHours 1)
+        $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
+        $totals.Count | Should Be 2
+        $totals[0].RequestCount | Should Be 6
+        $totals[1].RequestCount | Should Be 6
+        $totals[0].ResourceId | Should Not Be $totals[1].ResourceId
+    }
+
+    It 'keeps an incomplete month from affecting another month' {
+        $boundary = [datetimeoffset]::new([datetime]::UtcNow.Year, [datetime]::UtcNow.Month, 1, 0, 0, 0, [timespan]::Zero).AddMonths(-1)
+        $script:start = $boundary.AddHours(-1)
+        $script:end = $boundary.AddHours(1)
+        $script:missingSecondChunk = $true
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -WarningAction SilentlyContinue)
+        $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
+        $totals[0].CompletenessStatus | Should Be 'Reconciled'
+        $totals[0].RequestCount | Should Be 3
+        $totals[1].CompletenessStatus | Should Be 'UnverifiableMissingData'
+        ($null -eq $totals[1].RequestCount) | Should Be $true
+    }
+
+    It 'preserves exact integer counts larger than floating-point precision' {
+        $script:end = $script:start.AddHours(2)
+        $script:operations[0].Total = [long]9007199254740993
+        $script:unsplit = [long]9007199254740993
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 1)
+        ($rows[0].RequestCount -eq [decimal]18014398509481986) | Should Be $true
     }
 
     It 'does not emit partial account results when a later chunk fails' {

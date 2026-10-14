@@ -8,6 +8,7 @@ function Get-AzStorageTransactionMetric {
     Uses Azure Monitor Transactions (Total) on blobServices/default, with existing
     Az contexts. Returns flat objects, not prices or exact billed operations.
     Split series are reconciled with an unsplit service total for each time chunk.
+    Returns UTC calendar-month totals by default, including partial months.
     No storage keys, diagnostic settings, or Azure context changes are used.
     .PARAMETER ResourceId
     Explicit storage account ARM IDs, potentially from multiple subscriptions.
@@ -18,12 +19,16 @@ function Get-AzStorageTransactionMetric {
     Exclusive end with an explicit offset, aligned to a whole minute.
     .PARAMETER ChunkHours
     Query window size (1 to 24 hours). Defaults to 24. Reduce for high cardinality.
+    Does not change the monthly reporting period.
+    .PARAMETER SummaryPeriod
+    Month (default) combines verified chunks into UTC calendar-month records.
+    Chunk preserves the individual query-window records for troubleshooting.
     .PARAMETER IncludeDetail
     Includes each API/response/tier/authentication/geo/transaction-type series.
     Filter RecordType before summing: Detail, Summary and AccountTotal overlap.
     .EXAMPLE
     . .\PowerShell\Get-AzStorageTransactionMetric.ps1
-    $ids | Get-AzStorageTransactionMetric -StartTime '2026-10-01T00:00:00Z' -EndTime '2026-10-02T00:00:00Z' -IncludeDetail
+    $ids | Get-AzStorageTransactionMetric -StartTime '2026-09-01T00:00:00Z' -EndTime '2026-10-01T00:00:00Z' -IncludeDetail
     .OUTPUTS
     System.Management.Automation.PSCustomObject
     .NOTES
@@ -45,6 +50,9 @@ function Get-AzStorageTransactionMetric {
 
         [ValidateRange(1, 24)]
         [int]$ChunkHours = 24,
+
+        [ValidateSet('Month', 'Chunk')]
+        [string]$SummaryPeriod = 'Month',
 
         [switch]$IncludeDetail
     )
@@ -182,6 +190,9 @@ function Get-AzStorageTransactionMetric {
                 AccountDefaultAccessTier = $properties['accessTier']
                 StartTime = $chunkStart.ToString('o')
                 EndTime = $chunkEnd.ToString('o')
+                SummaryPeriod = if ($Type -eq 'Error') { $SummaryPeriod } else { 'Chunk' }
+                Month = if ($Type -eq 'Error') { $null } else { $chunkStart.ToString('yyyy-MM', [cultureinfo]::InvariantCulture) }
+                IsPartialMonth = $null
                 Category = $Category
                 ApiName = $Dimensions['ApiName']
                 ResponseType = $Dimensions['ResponseType']
@@ -197,6 +208,47 @@ function Get-AzStorageTransactionMetric {
                 QueryAccelerationDataReturnedBytes = $null
                 QueryAccelerationStatus = 'UnavailableInPlatformMetrics'
                 Message = $Message
+            }
+        }
+
+        function ConvertTo-MonthlyRecord {
+            param([object[]]$Records)
+            foreach ($monthGroup in ($Records | Group-Object Month)) {
+                $firstStart = [datetimeoffset]$monthGroup.Group[0].StartTime
+                $monthStart = [datetimeoffset]::new($firstStart.Year, $firstStart.Month, 1, 0, 0, 0, [timespan]::Zero)
+                $monthEnd = $monthStart.AddMonths(1)
+                $periodStart = $monthStart
+                $periodEnd = $monthEnd
+                if ($start -gt $periodStart) { $periodStart = $start }
+                if ($end -lt $periodEnd) { $periodEnd = $end }
+                $incomplete = @($monthGroup.Group | Where-Object CompletenessStatus -ne 'Reconciled').Count -gt 0
+                $recordGroups = $monthGroup.Group | Group-Object -CaseSensitive -Property {
+                    ConvertTo-Json -InputObject @(
+                        $_.RecordType, $_.Category, $_.ApiName, $_.ResponseType, $_.Tier,
+                        $_.GeoType, $_.Authentication, $_.TransactionType, $_.MappingStatus
+                    ) -Compress
+                }
+                foreach ($recordGroup in $recordGroups) {
+                    $record = $recordGroup.Group[0].PSObject.Copy()
+                    $count = [decimal]0
+                    $missingCount = $false
+                    foreach ($chunkRecord in $recordGroup.Group) {
+                        if ($null -eq $chunkRecord.RequestCount) {
+                            $missingCount = $true
+                        } else {
+                            $count += $chunkRecord.RequestCount
+                        }
+                    }
+                    $record.RequestCount = $count
+                    if ($missingCount) { $record.RequestCount = $null }
+                    $record.CountStatus = if ($missingCount) { 'MissingData' } else { 'Observed' }
+                    $record.CompletenessStatus = if ($incomplete) { 'UnverifiableMissingData' } else { 'Reconciled' }
+                    $record.StartTime = $periodStart.ToString('o')
+                    $record.EndTime = $periodEnd.ToString('o')
+                    $record.SummaryPeriod = 'Month'
+                    $record.IsPartialMonth = $periodStart -ne $monthStart -or $periodEnd -ne $monthEnd
+                    $record
+                }
             }
         }
     }
@@ -251,6 +303,10 @@ function Get-AzStorageTransactionMetric {
                 for ($chunkStart = $start; $chunkStart -lt $end; $chunkStart = $chunkEnd) {
                     $chunkEnd = $chunkStart.AddHours($ChunkHours)
                     if ($chunkEnd -gt $end) { $chunkEnd = $end }
+                    if ($SummaryPeriod -eq 'Month') {
+                        $nextMonth = [datetimeoffset]::new($chunkStart.Year, $chunkStart.Month, 1, 0, 0, 0, [timespan]::Zero).AddMonths(1)
+                        if ($chunkEnd -gt $nextMonth) { $chunkEnd = $nextMonth }
+                    }
                     $utcFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
                     $timespan = [uri]::EscapeDataString(
                         "$($chunkStart.ToString($utcFormat, [cultureinfo]::InvariantCulture))/$($chunkEnd.ToString($utcFormat, [cultureinfo]::InvariantCulture))"
@@ -346,7 +402,12 @@ function Get-AzStorageTransactionMetric {
                         }
                     }
                 }
-                $records
+                if ($SummaryPeriod -eq 'Month') {
+                    $monthlyRecords = @(ConvertTo-MonthlyRecord -Records $records.ToArray())
+                    $monthlyRecords
+                } else {
+                    $records
+                }
             } catch {
                 # Discard this account's buffered chunks rather than returning partial success.
                 $message = "Failed collecting ${id}: $($_.Exception.Message)"
