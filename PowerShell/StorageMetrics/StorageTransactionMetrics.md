@@ -1,5 +1,8 @@
 # Storage transaction metrics
 
+Start with the [quickstart](Quickstart.md) for single-account metrics, actual
+billed costs, public-rate estimates and collection across multiple subscriptions.
+
 [`Get-AzStorageTransactionMetric.ps1`](Get-AzStorageTransactionMetric.ps1) collects
 Azure Monitor **observed request counts** across explicitly selected storage
 accounts. It returns flat `PSCustomObject` records for pipelines, CSV, JSON and
