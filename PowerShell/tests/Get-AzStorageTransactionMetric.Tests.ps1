@@ -1,0 +1,388 @@
+# Az commands are external boundaries; these stubs allow offline mocking.
+function Get-AzContext { param([switch]$ListAvailable) }
+function Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
+
+Describe 'Get-AzStorageTransactionMetric' {
+    BeforeEach {
+        . "$PSScriptRoot\..\Get-AzStorageTransactionMetric.ps1"
+        $script:subscription = '11111111-1111-1111-1111-111111111111'
+        $script:id = "/subscriptions/$script:subscription/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/testaccount"
+        $script:start = [datetimeoffset]::UtcNow.AddDays(-2)
+        $script:start = $script:start.AddTicks(-($script:start.Ticks % [timespan]::TicksPerHour))
+        $script:end = $script:start.AddHours(1)
+        $script:operations = @(
+            @{ Api = 'GetBlob'; Total = 3; Response = 'Success'; Tier = 'Hot' }
+        )
+        $script:unsplit = 3
+        $script:kind = 'StorageV2'
+        $script:sku = 'Standard_LRS'
+        $script:contexts = @([pscustomobject]@{ Subscription = @{ Id = $script:subscription }; Tenant = @{ Id = 'tenant' } })
+        $script:splitBody = $null
+        $script:metricBody = $null
+        $script:httpFailure = $false
+        $script:badAccount = $false
+        $script:splitCalls = 0
+        $script:failSecondChunk = $false
+        Mock Get-AzContext {
+            $script:contexts
+        }
+        Mock Invoke-AzRestMethod {
+            if ($script:httpFailure) { return [pscustomobject]@{ StatusCode = 403; Content = 'Forbidden' } }
+            if ($script:badAccount -and $Path -match '/badaccount[/?]') { throw 'Account denied' }
+            if ($Path -notmatch 'Microsoft.Insights') {
+                return [pscustomobject]@{ StatusCode = 200; Content = (@{
+                    kind = $script:kind; sku = @{ name = $script:sku }
+                    location = 'eastus'; properties = @{ isHnsEnabled = $true; accessTier = 'Hot' }
+                } | ConvertTo-Json -Depth 10) }
+            }
+            if ($script:metricBody) { return [pscustomobject]@{ StatusCode = 200; Content = $script:metricBody } }
+            $series = @()
+            if ($Path -match '%24filter=') {
+                $script:splitCalls++
+                if ($script:failSecondChunk -and $script:splitCalls -eq 2) { throw 'Second chunk failed' }
+                if ($script:splitBody) { return [pscustomobject]@{ StatusCode = 200; Content = $script:splitBody } }
+                foreach ($op in $script:operations) {
+                    $series += @{
+                        metadatavalues = @(
+                            @{ name = @{ value = 'ApiName' }; value = $op.Api }
+                            @{ name = @{ value = 'ResponseType' }; value = $op.Response }
+                            @{ name = @{ value = 'Tier' }; value = $op.Tier }
+                            @{ name = @{ value = 'GeoType' }; value = 'Primary' }
+                            @{ name = @{ value = 'Authentication' }; value = 'OAuth' }
+                            @{ name = @{ value = 'TransactionType' }; value = 'User' }
+                        )
+                        data = @(@{ total = $op.Total })
+                    }
+                }
+            } else {
+                $series = @(@{ data = @(@{ total = $script:unsplit }) })
+            }
+            [pscustomobject]@{ StatusCode = 200; Content = (@{
+                value = @(@{ name = @{ value = 'Transactions' }; unit = 'Count'
+                    errorCode = 'Success'; timeseries = $series })
+            } | ConvertTo-Json -Depth 15) }
+        }
+    }
+
+    It 'returns a measured read summary and auditable dimensions' {
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        ($rows | Where-Object { $_.RecordType -eq 'Summary' -and $_.Category -eq 'Reads' }).RequestCount | Should Be 3
+        $detail = $rows | Where-Object RecordType -eq 'Detail'
+        $detail.ApiName | Should Be 'GetBlob'
+        $detail.ResponseType | Should Be 'Success'
+        $detail.Tier | Should Be 'Hot'
+        $detail.CompletenessStatus | Should Be 'Reconciled'
+    }
+
+    It 'uses documented Blob and Data Lake names instead of verb heuristics' {
+        $expected = @{
+            Reads = 'GetBlob QueryBlobContents GetFileProperties GetPathAccessControl GetPathStatus ReadFile'
+            Writes = 'SealBlob AppendBlockThroughCopy AppendBlock CopyBlobFromURL CopyBlob PutBlobFromURL PutBlob PutBlockFromURL PutBlockList PutBlock UndeleteBlob CreateFilesystem SetFilesystemProperties CreatePathDir CreatePathFile AppendFile FlushFile SetFileProperties SetPathAccessControl'
+            IterativeReads = 'ListFilesystems ListFilesystemDir ListFilesystemFile'
+            IterativeWrites = 'RenamePathDir RenamePathFile SetPathAccessControlRecursive'
+            ListAndCreateContainer = 'CreateContainer FindBlobsByTags ListBlobs ListContainers RestoreContainer'
+            Free = 'DeleteBlob DeleteContainer DeleteFilesystem DeleteDirectory DeleteFile'
+            AllOtherOperations = 'AbortCopyBlob SetContainerServiceMetadata GetAccountInformation GetBlobMetadata GetBlobProperties GetBlobServiceProperties GetBlobServiceStats GetBlobTags GetBlockList GetContainerACL GetContainerMetadata GetContainerProperties GetUserDelegationKey IncrementalCopyBlob AcquireBlobLease ReleaseBlobLease RenewBlobLease BreakBlobLease ChangeBlobLease AcquireContainerLease ReleaseContainerLease RenewContainerLease BreakContainerLease ChangeContainerLease BlobPreflightRequest SetBlobExpiry SetBlobMetadata SetBlobProperties SetBlobServiceProperties SetBlobTags SetContainerACL SetContainerMetadata SnapshotBlob GetFilesystemProperties LeaseFile'
+        }
+        $script:operations = @(
+            foreach ($names in $expected.Values) {
+                foreach ($api in $names.Split(' ')) { @{ Api = $api; Total = 1; Response = 'Success'; Tier = 'Hot' } }
+            }
+        )
+        $script:unsplit = $script:operations.Count
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail -ErrorAction Stop)
+        foreach ($category in $expected.Keys) {
+            foreach ($api in $expected[$category].Split(' ')) {
+                ($rows | Where-Object { $_.RecordType -eq 'Detail' -and $_.ApiName -eq $api }).Category | Should Be $category
+            }
+        }
+    }
+
+    It 'keeps unknown and ambiguous APIs out of AllOtherOperations' {
+        $script:operations = @(
+            @{ Api = 'GetNewApi'; Total = 2; Response = 'Success'; Tier = 'Hot' }
+            @{ Api = 'SetBlobTier'; Total = 5; Response = 'Success'; Tier = 'Cool' }
+        )
+        $script:unsplit = 7
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        ($rows | Where-Object { $_.RecordType -eq 'Summary' -and $_.Category -eq 'Unmapped' }).RequestCount | Should Be 7
+        ($rows | Where-Object { $_.RecordType -eq 'Summary' -and $_.Category -eq 'AllOtherOperations' }).RequestCount | Should Be 0
+        ($rows | Where-Object ApiName -eq 'SetBlobTier').MappingStatus | Should Be 'AmbiguousTierChangeOrBatch'
+    }
+
+    It 'honors the general purpose v1 column' {
+        $script:kind = 'Storage'
+        $script:operations = @(
+            @{ Api = 'GetBlobProperties'; Total = 4; Response = 'Success'; Tier = 'Hot' }
+            @{ Api = 'AbortCopyBlob'; Total = 2; Response = 'Success'; Tier = 'Hot' }
+            @{ Api = 'DeleteBlob'; Total = 3; Response = 'Success'; Tier = 'Hot' }
+        )
+        $script:unsplit = 9
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        ($rows | Where-Object ApiName -eq 'GetBlobProperties').Category | Should Be 'Reads'
+        ($rows | Where-Object ApiName -eq 'AbortCopyBlob').Category | Should Be 'Writes'
+        ($rows | Where-Object ApiName -eq 'DeleteBlob').Category | Should Be 'AllOtherOperations'
+    }
+
+    It 'supports the premium block blob column and preserves configuration' {
+        $script:kind = 'BlockBlobStorage'
+        $script:sku = 'Premium_LRS'
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end)
+        $rows[0].AccountKind | Should Be 'BlockBlobStorage'
+        $rows[0].SkuName | Should Be 'Premium_LRS'
+        $rows[0].IsHnsEnabled | Should Be $true
+        $rows[0].AccountDefaultAccessTier | Should Be 'Hot'
+    }
+
+    It 'does not silently apply a documented column to legacy BlobStorage' {
+        $script:kind = 'BlobStorage'
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail -WarningAction SilentlyContinue)
+        ($rows | Where-Object RecordType -eq 'Detail').MappingStatus | Should Be 'UnsupportedAccount'
+        ($rows | Where-Object { $_.RecordType -eq 'Summary' -and $_.Category -eq 'Unmapped' }).RequestCount | Should Be 3
+    }
+
+    It 'preserves failed requests and aggregates separate response and tier series' {
+        $script:operations = @(
+            @{ Api = 'GetBlob'; Total = 3; Response = 'Success'; Tier = 'Hot' }
+            @{ Api = 'GetBlob'; Total = 2; Response = 'AuthenticationError'; Tier = 'Cool' }
+            @{ Api = 'PutBlob'; Total = 7; Response = 'AuthorizationError'; Tier = 'Hot' }
+        )
+        $script:unsplit = 12
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        ($rows | Where-Object { $_.RecordType -eq 'Summary' -and $_.Category -eq 'Reads' }).RequestCount | Should Be 5
+        ($rows | Where-Object ResponseType -eq 'AuthenticationError').RequestCount | Should Be 2
+        ($rows | Where-Object ResponseType -eq 'AuthenticationError').Tier | Should Be 'Cool'
+    }
+
+    It 'represents unavailable query acceleration bytes as null rather than traffic bytes' {
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end)
+        ($null -eq $rows[0].QueryAccelerationDataScannedBytes) | Should Be $true
+        ($null -eq $rows[0].QueryAccelerationDataReturnedBytes) | Should Be $true
+        $rows[0].QueryAccelerationStatus | Should Be 'UnavailableInPlatformMetrics'
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter { $Path -match 'Ingress|Egress|QueryAcceleration' }
+    }
+
+    It 'distinguishes a genuine zero from missing data' {
+        $script:operations = @()
+        $script:unsplit = 0
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end)
+        ($rows | Where-Object Category -eq 'Reads').RequestCount | Should Be 0
+        $rows[0].CompletenessStatus | Should Be 'Reconciled'
+    }
+
+    It 'makes summaries null when an unsplit Total is missing' {
+        $script:unsplit = $null
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -WarningAction SilentlyContinue)
+        ($null -eq ($rows | Where-Object Category -eq 'Reads').RequestCount) | Should Be $true
+        $rows[0].CountStatus | Should Be 'MissingData'
+        $rows[0].CompletenessStatus | Should Be 'UnverifiableMissingData'
+    }
+
+    It 'does not turn a null split Total into zero' {
+        $script:operations[0].Total = $null
+        $script:unsplit = 0
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail -WarningAction SilentlyContinue)
+        ($null -eq ($rows | Where-Object Category -eq 'Writes').RequestCount) | Should Be $true
+        ($rows | Where-Object RecordType -eq 'Detail').CountStatus | Should Be 'MissingData'
+    }
+
+    It 'keeps an entirely empty metric response unknown' {
+        $script:operations = @()
+        $script:metricBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Count","timeseries":[]}]}'
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -WarningAction SilentlyContinue)
+        ($null -eq $rows[0].RequestCount) | Should Be $true
+        @($rows | Where-Object { $_.RecordType -eq 'Summary' -and $null -ne $_.RequestCount }).Count | Should Be 0
+        $rows[0].CompletenessStatus | Should Be 'UnverifiableMissingData'
+    }
+
+    It 'preserves missing-data semantics when the caller uses strict mode' {
+        $script:metricBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Count","timeseries":[]}]}'
+        Set-StrictMode -Version Latest
+        try {
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -WarningAction SilentlyContinue -ErrorAction Stop)
+            $rows[0].CompletenessStatus | Should Be 'UnverifiableMissingData'
+        } finally {
+            Set-StrictMode -Off
+        }
+    }
+
+    It 'still emits a flat error record for a denied account under strict mode' {
+        $script:httpFailure = $true
+        Set-StrictMode -Version Latest
+        try {
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction SilentlyContinue)
+            $rows.Count | Should Be 1
+            $rows[0].RecordType | Should Be 'Error'
+            ($null -eq $rows[0].SkuName) | Should Be $true
+        } finally {
+            Set-StrictMode -Off
+        }
+    }
+
+    It 'exports flat records without losing dimensions or JSON nulls' {
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        $rows | Export-Csv -LiteralPath "$TestDrive\metrics.csv" -NoTypeInformation
+        $csv = @(Import-Csv -LiteralPath "$TestDrive\metrics.csv")
+        ($csv | Where-Object RecordType -eq 'Detail').ApiName | Should Be 'GetBlob'
+        ($csv | Where-Object RecordType -eq 'Detail').RequestCount | Should Be '3'
+        $json = @(ConvertTo-Json -InputObject $rows -Depth 4 | ConvertFrom-Json)
+        ($null -eq $json[0].QueryAccelerationDataScannedBytes) | Should Be $true
+        ($json | Where-Object RecordType -eq 'Detail').RequestCount | Should Be 3
+    }
+
+    It 'fails closed when split and unsplit totals do not reconcile' {
+        $script:unsplit = 4
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'does not match unsplit'
+    }
+
+    It 'fails closed at the explicit top limit even if hidden series could be zero' {
+        $script:splitBody = @{
+            value = @(@{ name = @{ value = 'Transactions' }; unit = 'Count'; errorCode = 'Success'
+                timeseries = @(1..10000 | ForEach-Object { @{ data = @() } }) })
+        } | ConvertTo-Json -Depth 10 -Compress
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'top=10000'
+    }
+
+    It 'requires all requested dimensions' {
+        $script:splitBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Count","timeseries":[{"metadatavalues":[],"data":[{"total":3}]}]}]}'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'missing dimension'
+    }
+
+    It 'rejects duplicate dimension series instead of double counting' {
+        $script:operations += $script:operations[0]
+        $script:unsplit = 6
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'Duplicate'
+    }
+
+    It 'surfaces metric-level errors even on HTTP success' {
+        $script:metricBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Count","errorCode":"BadArgument","errorMessage":"invalid filter","timeseries":[]}]}'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'BadArgument'
+    }
+
+    It 'rejects malformed JSON, missing metrics and incorrect metric units' {
+        $script:metricBody = 'not-json'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'JSON'
+        $script:metricBody = '{"value":[]}'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'exactly one'
+        $script:metricBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Bytes","timeseries":[]}]}'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'Count units'
+    }
+
+    It 'rejects invalid request totals and unexpected point cardinality' {
+        $script:operations[0].Total = -1
+        $script:unsplit = -1
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'nonnegative integer'
+        $script:operations[0].Total = 1.5
+        $script:unsplit = 1.5
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'nonnegative integer'
+        $script:metricBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Count","timeseries":[{"data":[{"total":1},{"total":2}]}]}]}'
+        # Both queries have the same unexpected shape; the unsplit total is checked first.
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'single FULL'
+    }
+
+    It 'surfaces HTTP failures with an error-stream message and a null error record' {
+        $script:httpFailure = $true
+        $errors = @()
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction SilentlyContinue -ErrorVariable errors)
+        @($errors | Where-Object FullyQualifiedErrorId -like 'StorageTransactionCollectionFailed*').Count | Should Be 1
+        $rows.Count | Should Be 1
+        $rows[0].RecordType | Should Be 'Error'
+        ($null -eq $rows[0].RequestCount) | Should Be $true
+        $rows[0].Message | Should Match '403'
+    }
+
+    It 'isolates an account failure while continuing other accounts' {
+        $script:badAccount = $true
+        $bad = $script:id.Replace('testaccount', 'badaccount')
+        $rows = @(@($bad, $script:id) | Get-AzStorageTransactionMetric -StartTime $script:start -EndTime $script:end -ErrorAction SilentlyContinue)
+        @($rows | Where-Object RecordType -eq 'Error').Count | Should Be 1
+        ($rows | Where-Object { $_.StorageAccountName -eq 'testaccount' -and $_.Category -eq 'Reads' }).RequestCount | Should Be 3
+    }
+
+    It 'uses explicit contexts for multiple subscriptions without modifying Azure context' {
+        $secondSubscription = '22222222-2222-2222-2222-222222222222'
+        $script:contexts = @(
+            [pscustomobject]@{ Subscription = @{ Id = $script:subscription } }
+            [pscustomobject]@{ Subscription = @{ Id = '22222222-2222-2222-2222-222222222222' } }
+        )
+        $second = $script:id.Replace($script:subscription, $secondSubscription)
+        $rows = @(@($script:id, $second, $script:id) | Get-AzStorageTransactionMetric -StartTime $script:start -EndTime $script:end -ErrorAction Stop)
+        @($rows | Where-Object RecordType -eq 'AccountTotal').Count | Should Be 2
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter {
+            $Path -match '/subscriptions/22222222-' -and $DefaultProfile.Subscription.Id -eq '22222222-2222-2222-2222-222222222222'
+        }
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter {
+            $Path -match 'Microsoft.Insights' -and $Path -notmatch '/blobServices/default/'
+        }
+    }
+
+    It 'surfaces missing and ambiguous saved subscription contexts' {
+        $script:contexts = @()
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'No saved Az context'
+        $script:contexts = @(
+            [pscustomobject]@{ Subscription = @{ Id = $script:subscription } }
+            [pscustomobject]@{ Subscription = @{ Id = $script:subscription } }
+        )
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'Multiple saved Az contexts'
+    }
+
+    It 'chunks adjacent windows without overlapping or summing account-parent metrics' {
+        $script:end = $script:start.AddHours(3)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 2)
+        $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
+        $totals.Count | Should Be 2
+        $totals[0].EndTime | Should Be $totals[1].StartTime
+        $totals[1].EndTime | Should Be $script:end.ToString('o')
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 2 -Exactly -ParameterFilter {
+            $Path -match 'aggregation=Total&interval=FULL' -and $Path -match 'top=10000'
+        }
+    }
+
+    It 'does not emit partial account results when a later chunk fails' {
+        $script:end = $script:start.AddHours(2)
+        $script:failSecondChunk = $true
+        $script:operations = @()
+        $script:unsplit = 0
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 1 -ErrorAction SilentlyContinue)
+        $rows.Count | Should Be 1
+        $rows[0].RecordType | Should Be 'Error'
+    }
+
+    It 'rejects Files scope and service IDs' {
+        $script:kind = 'FileStorage'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw 'outside Blob/ADLS'
+        { Get-AzStorageTransactionMetric -ResourceId "$script:id/blobServices/default" -StartTime $script:start -EndTime $script:end } |
+            Should Throw 'ARM resource ID'
+    }
+
+    It 'validates time ranges, retention, minute alignment and chunk size' {
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:end -EndTime $script:start } | Should Throw 'precede'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime ([datetimeoffset]::UtcNow.AddDays(1)) } | Should Throw 'future'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddSeconds(1) -EndTime $script:end } | Should Throw 'whole minutes'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddDays(-94) -EndTime $script:end } | Should Throw 'retention'
+    }
+
+    It 'rejects a zero-hour chunk at parameter binding' {
+        $rejected = $false
+        try {
+            Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 0 -ErrorAction Stop
+        } catch [System.Management.Automation.ParameterBindingException] {
+            $rejected = $true
+        }
+        $rejected | Should Be $true
+    }
+}
