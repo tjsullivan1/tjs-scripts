@@ -331,6 +331,7 @@ function Get-AzStorageTransactionMetric {
                 BilledCapacityGiBMonth = $null
                 CapacityDifferenceGiBMonth = $null
                 CapacityDifferencePercent = $null
+                CapacityTierBasis = $null
             }
         }
 

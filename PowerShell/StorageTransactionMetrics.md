@@ -264,6 +264,7 @@ establish historical configuration or the Blob/DFS endpoint pricing schedule.
 | `ObservedCapacityGiBMonth`, `BilledCapacityGiBMonth` | Comparable measured estimate and reported capacity usage; neither is synthesized from cost |
 | `CapacityDifferenceGiBMonth`, `CapacityDifferencePercent` | Observed minus billed; percentage relative to billed quantity; null for blocked comparisons or a zero percentage denominator |
 | `HasNegativeUsageQuantity` | Whether a billing aggregate contains any negative Usage row, even when its net quantity is positive |
+| `CapacityTierBasis` | `ExplicitMetricTier`, `NonTieredGPv1`, or `Unresolved` on normalized Blob capacity/comparisons; raw metric and billing tier labels remain unchanged |
 
 For a full month, normalized sampled capacity is the time-weighted monthly
 average in bytes divided by **1,073,741,824**, giving GiBMonth for that month.
@@ -290,13 +291,22 @@ block-blob capacity. HNS index is compared separately, without inventing its
 metric tier. Rates and benefit coverage do not change quantities; disjoint
 meter/rate/benefit rows can contribute to the same quantity comparison.
 
+There is one explicitly non-tiered case: standard GPv1 accounts (`AccountKind =
+Storage`) whose capacity series are all labeled `Untiered`. Their untiered
+capacity can be compared with unlabeled `General Block Blob` capacity meters.
+GPv1 does not support Blob access tiers, so these quantities are not assigned
+to Hot. Modern/unknown catalog meters do not receive this exception. This uses
+the observed account snapshot and catalog evidence, not reconstructed account
+history; a GPv1-to-GPv2 pricing change still needs separate review. See
+[GPv1 migration and pricing differences](https://learn.microsoft.com/en-us/azure/storage/common/general-purpose-version-1-account-migration-overview).
+
 | `CapacityComparison.ComparisonStatus` | Meaning |
 | --- | --- |
 | `QuantitiesMatch` / `QuantitiesDiffer` | Exact numeric equality/difference of available quantities; neither validates prices or final billing coverage |
 | `NoMatchingBillingMeter` | Complete sampled capacity exists, but no matching Usage capacity meter was returned; billed quantity remains null |
 | `MetricsIncomplete` | Complete sampled capacity is unavailable; billed quantities can remain available |
 | `MetricsFailed` / `BillingUnavailable` | An underlying capacity query or billing request/import failed; inspect original error records |
-| `TierUnresolved` | Missing tier or a label such as `Untiered`; account default tier is never substituted, and no observed comparison quantity is assigned |
+| `TierUnresolved` | Missing or unsupported tier, including `Untiered` outside the verified GPv1 case; account default tier is never substituted |
 | `UnsupportedBlobType` | The metric contains a blob type outside the recognized block-blob meter scope |
 | `UnverifiedUnit` | At least one matching billing meter lacks a verified GiBMonth conversion; billed comparison quantity remains null |
 | `AmbiguousBillingContext` | Different currency, meter-region or redundancy contexts would be combined; billed comparison quantity remains null |
@@ -765,9 +775,30 @@ The subsequent workload-baseline run collected September capacity and transactio
 for all four selected `mnsigs` accounts, using the saved actual-cost CSV.
 For `samnsigs001`, the sampled estimate was 0.0090680737 GiBMonth versus
 0.009360 billed GiBMonth, a -3.1189% quantity difference that remains unexplained.
-`rgmnsigseventsaff2` had complete samples labeled `Untiered` and an unlabeled
-capacity meter; those are deliberately not assigned to Hot. `sakioocs` and
+`rgmnsigseventsaff2` had complete GPv1 samples labeled `Untiered` and an unlabeled
+`General Block Blob` capacity meter. The GPv1-specific comparison reports
+0.0448656622 sampled GiBMonth versus 0.044640 billed GiBMonth, a +0.5055%
+difference; neither source is assigned to Hot. `sakioocs` and
 `samnsigscontact` had incomplete capacity samples. All unresolved conditions
 remain explicit instead of yielding a validated baseline. The normalized billing
 rows preserved the original 0.003529548 USD selected-account cost and retained
 unknown/Defender meters. These are quantity diagnostics, not price calculations.
+
+Follow-up live queries on October 14 checked whether query boundaries caused
+these differences:
+
+| Evidence | Result |
+| --- | --- |
+| `samnsigs001`, independent full-month daily `BlobCapacity` query | All 30 daily averages were 9,736,770 bytes, matching the hourly average. The discrepancy is not explained by daily chunking or unequal averaging. |
+| Capacity billing date coverage | Both billed-capacity accounts have 30 dated Usage rows spanning September 1-30. Daily quantities are constant: 0.000312 and 0.001488 GB/Month respectively. Date coverage alone does not establish billing accuracy or completeness. |
+| `sakioocs`, full-month hourly split and unsplit queries | Both still lack numeric samples at September 15 14:00 UTC and September 30 14:00 UTC. Available samples are zero, but missing hours are not inferred to be zero. |
+| `samnsigscontact`, full-month hourly split and unsplit queries | Both still lack a numeric sample at September 25 20:00 UTC. A complete monthly capacity estimate cannot be reconstructed from these metrics. |
+
+The remaining capacity differences cannot be attributed to a specific billing
+rule from this evidence. No correction factor is applied. Resolving them requires
+the billing meter's underlying capacity measurement/precision semantics and
+historical configuration evidence; missing Monitor hours require an independent
+historical source or a different fully covered baseline month. A current blob
+listing would not reconstruct September usage. The GPv1 accounts also require
+an explicit account-type/pricing assumption when evaluating modern redundancy
+options; a redundancy-only rate change is not sufficient.

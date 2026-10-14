@@ -36,6 +36,14 @@ function Get-StorageWorkloadBaseline {
                 $record.QuantityKind = if ($_ -eq 'Capacity') { 'UsedCapacity' } else { 'HnsIndexCapacity' }
                 $record.QuantityUnit = 'GiBMonth'
                 $record.QuantityStatus = 'MissingData'
+                if ($_ -eq 'Capacity') {
+                    $record.CapacityTierBasis = if ($source.AccountKind -eq 'Storage' -and
+                        $source.SkuName -like 'Standard_*' -and $source.Tier -eq 'Untiered') {
+                        'NonTieredGPv1'
+                    } elseif ($source.Tier -in @('Hot', 'Cool', 'Cold', 'Archive')) {
+                        'ExplicitMetricTier'
+                    } else { 'Unresolved' }
+                }
                 if ($source.CapacityStatus -eq 'CompleteSamples' -and $null -ne $source.AverageUsedBytes) {
                     $record.Quantity = $source.AverageUsedBytes / [decimal]1073741824
                     $record.QuantityStatus = 'CompleteSampleEstimate'
@@ -68,15 +76,26 @@ function Get-StorageWorkloadBaseline {
         $capacities = @($period | Where-Object RecordType -eq 'Capacity')
         $meters = @($period | Where-Object { $_.RecordType -eq 'CostMeter' -and $_.ChargeType -eq 'Usage' })
         $blobMeters = @($meters | Where-Object BillingQuantityKind -eq 'Capacity')
+        $nonTieredGPv1 = $template.AccountKind -eq 'Storage' -and
+            $template.SkuName -like 'Standard_*' -and $capacities.Count -gt 0 -and
+            -not @($capacities | Where-Object Tier -ne 'Untiered').Count
         $tiers = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($capacity in $capacities) { [void]$tiers.Add([string]$capacity.Tier) }
-        foreach ($meter in $blobMeters) { [void]$tiers.Add([string]$meter.BillingTier) }
+        foreach ($meter in $blobMeters) {
+            if ($nonTieredGPv1 -and -not $meter.BillingTier -and $meter.MeterSubCategory -eq 'General Block Blob') {
+                [void]$tiers.Add('Untiered')
+            } else { [void]$tiers.Add([string]$meter.BillingTier) }
+        }
         if (-not $tiers.Count) { [void]$tiers.Add('') }
         foreach ($tier in ($tiers | Sort-Object)) {
             $groups.Add(@{
                 Kind = 'UsedCapacity'; Tier = $tier
                 Measured = @($capacities | Where-Object { [string]$_.Tier -eq $tier })
-                Billed = @($blobMeters | Where-Object { [string]$_.BillingTier -eq $tier })
+                Billed = @($blobMeters | Where-Object {
+                    [string]$_.BillingTier -eq $tier -or
+                    ($nonTieredGPv1 -and $tier -eq 'Untiered' -and -not $_.BillingTier -and
+                        $_.MeterSubCategory -eq 'General Block Blob')
+                })
             })
         }
         $index = @($period | Where-Object RecordType -eq 'IndexCapacity')
@@ -94,6 +113,13 @@ function Get-StorageWorkloadBaseline {
             $comparison.QuantityKind = $group.Kind
             $comparison.QuantityUnit = 'GiBMonth'
             $comparison.Tier = if ($group.Tier) { $group.Tier } else { $null }
+            if ($group.Kind -eq 'UsedCapacity') {
+                $comparison.CapacityTierBasis = if ($nonTieredGPv1 -and $group.Tier -eq 'Untiered') {
+                    'NonTieredGPv1'
+                } elseif ($group.Tier -in @('Hot', 'Cool', 'Cold', 'Archive')) {
+                    'ExplicitMetricTier'
+                } else { 'Unresolved' }
+            }
             $comparison.QuantityBasis = 'SampledUsedCapacityVersusBillingReportedUsage'
             $comparison.QuantitySource = 'AzureMonitorAndBilling'
             $comparison.QuantityStatus = 'ComparisonOnly'
@@ -154,7 +180,7 @@ function Get-StorageWorkloadBaseline {
                 $comparison.ObservedCapacityGiBMonth = $null
                 $comparison.ComparisonStatus = 'UnsupportedBlobType'
             }
-            if ($group.Kind -eq 'UsedCapacity' -and $group.Tier -notin @('Hot', 'Cool', 'Cold', 'Archive')) {
+            if ($group.Kind -eq 'UsedCapacity' -and $comparison.CapacityTierBasis -eq 'Unresolved') {
                 $comparison.ObservedCapacityGiBMonth = $null
                 $comparison.ComparisonStatus = 'TierUnresolved'
             }

@@ -26,6 +26,7 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:missingRequests = $false
         $script:blobType = 'BlockBlob'
         $script:capacityTier = 'Hot'
+        $script:accountKind = 'StorageV2'
         $script:ops = @(@{ Api = 'GetBlob'; Tier = 'Hot'; Response = 'Success'; Count = 3 })
         Mock Get-AzContext {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub; Name = 'Example' } }
@@ -33,7 +34,7 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         Mock Invoke-AzRestMethod {
             if ($Path -notmatch 'Microsoft.Insights') {
                 return [pscustomobject]@{ StatusCode = 200; Content = (@{
-                    kind = 'StorageV2'; sku = @{ name = 'Standard_LRS' }; location = 'eastus'
+                    kind = $script:accountKind; sku = @{ name = 'Standard_LRS' }; location = 'eastus'
                     properties = @{ isHnsEnabled = $script:hns; accessTier = 'Hot' }
                 } | ConvertTo-Json -Depth 5) }
             }
@@ -176,6 +177,54 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         ($null -eq $comparison.ObservedCapacityGiBMonth) | Should Be $true
         $comparison.BilledCapacityGiBMonth | Should Be 2
         ($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Hot' }).ComparisonStatus | Should Be 'NoMatchingBillingMeter'
+    }
+
+    It 'compares explicitly untiered GPv1 capacity against its legacy billing catalog without assigning Hot' {
+        $script:accountKind = 'Storage'
+        $script:capacityTier = 'Untiered'
+        $script:costRows[0].MeterName = 'LRS Data Stored'
+        $script:costRows[0].MeterSubCategory = 'General Block Blob'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
+        $comparison = @($rows | Where-Object RecordType -eq 'CapacityComparison')
+        $comparison.Count | Should Be 1
+        $comparison[0].Tier | Should Be 'Untiered'
+        $comparison[0].CapacityTierBasis | Should Be 'NonTieredGPv1'
+        $comparison[0].ObservedCapacityGiBMonth | Should Be 2
+        $comparison[0].BilledCapacityGiBMonth | Should Be 2
+        $comparison[0].ComparisonStatus | Should Be 'QuantitiesMatch'
+        ($rows | Where-Object RecordType -eq 'BilledWorkload').BillingTier | Should BeNullOrEmpty
+    }
+
+    It 'does not apply legacy non-tiered semantics to a modern account or modern billing catalog' {
+        $script:capacityTier = 'Untiered'
+        $script:costRows[0].MeterName = 'LRS Data Stored'
+        $script:costRows[0].MeterSubCategory = 'General Block Blob'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
+        @($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.ComparisonStatus -ne 'TierUnresolved' }).Count | Should Be 0
+        $script:accountKind = 'Storage'
+        $script:costRows[0].MeterSubCategory = 'Blob Storage'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
+        $untiered = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Untiered' }
+        $untiered.ComparisonStatus | Should Be 'NoMatchingBillingMeter'
+        ($null -eq $untiered.BilledCapacityGiBMonth) | Should Be $true
+    }
+
+    It 'keeps incomplete legacy capacity unknown even when its non-tiered billing catalog matches' {
+        $script:accountKind = 'Storage'
+        $script:capacityTier = 'Untiered'
+        $script:missingCapacity = $true
+        $script:costRows[0].MeterName = 'LRS Data Stored'
+        $script:costRows[0].MeterSubCategory = 'General Block Blob'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -WarningAction SilentlyContinue -ErrorAction Stop)
+        $comparison = @($rows | Where-Object RecordType -eq 'CapacityComparison')
+        $comparison.Count | Should Be 1
+        $comparison[0].ComparisonStatus | Should Be 'MetricsIncomplete'
+        ($null -eq $comparison[0].ObservedCapacityGiBMonth) | Should Be $true
+        $comparison[0].BilledCapacityGiBMonth | Should Be 2
     }
 
     It 'blocks comparisons with multiple redundancy or currency contexts' {
