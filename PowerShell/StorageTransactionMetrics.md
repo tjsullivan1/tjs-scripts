@@ -240,8 +240,11 @@ delivery guarantees or the presence of every zero-valued series.
 An absent/null Total is not synthesized as zero. If any split Total or the
 unsplit Total is missing, every category summary for that chunk is null and
 `UnverifiableMissingData`; a warning is emitted. Available detail counts remain
-visible with that same completeness status. If Azure explicitly returns an
-unsplit zero and no split series, the summaries are genuine observed zeros.
+visible with that same completeness status. If both the split and unsplit
+queries return an explicit `errorCode: Success` with empty timeseries (Azure
+Monitor's no-traffic response, confirmed live on idle accounts), or the unsplit
+query returns a zero Total, the summaries are observed zeros. An empty response
+without an explicit `Success` stays unknown.
 `Reconciled` does not promise that every minute had telemetry or that Azure
 will never revise recent data.
 
@@ -277,3 +280,8 @@ Live Azure behavior has not been validated in the development environment.
 Before relying on a production run, compare one completed window's
 `AccountTotal` and detailed splits with Azure Monitor Metrics Explorer on the
 same Blob service, aggregation, window and dimensions.
+
+## Live validation
+
+Run once against six Standard_LRS StorageV2 accounts (one subscription, 7 UTC days, 24h chunks): all accounts returned without errors and every chunk reconciled split vs. unsplit totals. Idle accounts returned explicit zeros. Counts were not compared with Portal Metrics Explorer.
+

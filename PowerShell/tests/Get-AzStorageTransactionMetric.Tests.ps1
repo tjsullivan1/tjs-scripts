@@ -74,6 +74,15 @@ Describe 'Get-AzStorageTransactionMetric' {
         $detail.CompletenessStatus | Should Be 'Reconciled'
     }
 
+    It 'sends UTC Z timestamps so form decoding cannot replace offset plus signs with spaces' {
+        Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop | Out-Null
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 2 -Exactly -ParameterFilter {
+            $Path -match 'Microsoft.Insights' -and
+            [uri]::UnescapeDataString($Path) -match 'timespan=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/' -and
+            [uri]::UnescapeDataString($Path) -notmatch '\+00:00'
+        }
+    }
+
     It 'uses documented Blob and Data Lake names instead of verb heuristics' {
         $expected = @{
             Reads = 'GetBlob QueryBlobContents GetFileProperties GetPathAccessControl GetPathStatus ReadFile'
@@ -186,13 +195,21 @@ Describe 'Get-AzStorageTransactionMetric' {
         ($rows | Where-Object RecordType -eq 'Detail').CountStatus | Should Be 'MissingData'
     }
 
-    It 'keeps an entirely empty metric response unknown' {
+    It 'keeps an empty metric response without explicit Success unknown' {
         $script:operations = @()
         $script:metricBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Count","timeseries":[]}]}'
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -WarningAction SilentlyContinue)
         ($null -eq $rows[0].RequestCount) | Should Be $true
         @($rows | Where-Object { $_.RecordType -eq 'Summary' -and $null -ne $_.RequestCount }).Count | Should Be 0
         $rows[0].CompletenessStatus | Should Be 'UnverifiableMissingData'
+    }
+
+    It 'reports zero when Azure explicitly returns Success with empty timeseries' {
+        $script:operations = @()
+        $script:metricBody = '{"value":[{"name":{"value":"Transactions"},"unit":"Count","errorCode":"Success","timeseries":[]}]}'
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end)
+        $rows[0].RequestCount | Should Be 0
+        $rows[0].CompletenessStatus | Should Be 'Reconciled'
     }
 
     It 'preserves missing-data semantics when the caller uses strict mode' {

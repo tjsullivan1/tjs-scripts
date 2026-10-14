@@ -251,7 +251,10 @@ function Get-AzStorageTransactionMetric {
                 for ($chunkStart = $start; $chunkStart -lt $end; $chunkStart = $chunkEnd) {
                     $chunkEnd = $chunkStart.AddHours($ChunkHours)
                     if ($chunkEnd -gt $end) { $chunkEnd = $end }
-                    $timespan = [uri]::EscapeDataString("$($chunkStart.ToString('o'))/$($chunkEnd.ToString('o'))")
+                    $utcFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                    $timespan = [uri]::EscapeDataString(
+                        "$($chunkStart.ToString($utcFormat, [cultureinfo]::InvariantCulture))/$($chunkEnd.ToString($utcFormat, [cultureinfo]::InvariantCulture))"
+                    )
                     $path = "$id/blobServices/default/providers/Microsoft.Insights/metrics" +
                         "?api-version=2023-10-01&metricnamespace=Microsoft.Storage%2FstorageAccounts%2FblobServices" +
                         "&metricnames=Transactions&aggregation=Total&interval=FULL&timespan=$timespan" +
@@ -269,7 +272,13 @@ function Get-AzStorageTransactionMetric {
                     $totalSeries = @(Get-TransactionSeries -Response $totalResponse)
                     if ($totalSeries.Count -gt 1) { throw 'Unsplit query unexpectedly returned multiple series.' }
                     $total = $null
-                    if ($totalSeries.Count -eq 1) { $total = Get-SeriesCount -Series $totalSeries[0] }
+                    if ($totalSeries.Count -eq 1) {
+                        $total = Get-SeriesCount -Series $totalSeries[0]
+                    } elseif ($split.Count -eq 0 -and $totalResponse['value'][0]['errorCode'] -eq 'Success' -and
+                        $splitResponse['value'][0]['errorCode'] -eq 'Success') {
+                        # Explicit Success with empty timeseries is Azure Monitor's no-traffic response.
+                        $total = [decimal]0
+                    }
                     $missing = $null -eq $total
                     $splitSum = [decimal]0
                     $details = [System.Collections.Generic.List[object]]::new()
