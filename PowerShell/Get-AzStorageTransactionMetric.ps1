@@ -26,9 +26,17 @@ function Get-AzStorageTransactionMetric {
     .PARAMETER IncludeDetail
     Includes each API/response/tier/authentication/geo/transaction-type series.
     Filter RecordType before summing: Detail, Summary and AccountTotal overlap.
+    .PARAMETER IncludeCapacity
+    Adds hourly BlobCapacity samples rolled up by tier/blob type and IndexCapacity
+    for HNS accounts. Requires whole-hour boundaries. Used capacity is not exact
+    billable capacity; missing hours remain visible and are never filled as zero.
     .PARAMETER IncludeCostComparison
     Adds actual billed usage comparisons for completed UTC months. Uses the
     Cost Details report API; unsupported billing offers can supply CSV instead.
+    .PARAMETER IncludeCostDetail
+    Preserves each matched daily billing row in additional CostDetail records.
+    Requires IncludeCostComparison or CostDetailsCsv. Detail, meter and comparison
+    costs overlap; filter RecordType before summing.
     .PARAMETER CostDetailsCsv
     Complete actual-cost usage-details CSV files, including all report partitions.
     Adds cost comparisons without making Cost Management requests.
@@ -62,7 +70,11 @@ function Get-AzStorageTransactionMetric {
 
         [switch]$IncludeDetail,
 
+        [switch]$IncludeCapacity,
+
         [switch]$IncludeCostComparison,
+
+        [switch]$IncludeCostDetail,
 
         [ValidateNotNullOrEmpty()]
         [string[]]$CostDetailsCsv
@@ -77,10 +89,17 @@ function Get-AzStorageTransactionMetric {
         if ($start.Ticks % [timespan]::TicksPerMinute -or $end.Ticks % [timespan]::TicksPerMinute) {
             throw 'StartTime and EndTime must be aligned to whole minutes.'
         }
+        if ($IncludeCapacity -and ($start.Ticks % [timespan]::TicksPerHour -or $end.Ticks % [timespan]::TicksPerHour)) {
+            throw 'IncludeCapacity requires StartTime and EndTime aligned to whole hours.'
+        }
+        if ($IncludeCapacity) { . "$PSScriptRoot\StorageCapacityMetrics.ps1" }
         if ($start -lt [datetimeoffset]::UtcNow.AddDays(-93)) {
             throw 'StartTime is outside the 93-day Azure Monitor platform metric retention window.'
         }
         $compareCosts = $IncludeCostComparison -or [bool]$CostDetailsCsv
+        if ($IncludeCostDetail -and -not $compareCosts) {
+            throw 'IncludeCostDetail requires IncludeCostComparison or CostDetailsCsv.'
+        }
         if ($compareCosts) {
             if ($SummaryPeriod -ne 'Month' -or $start.Day -ne 1 -or $end.Day -ne 1 -or
                 $start.TimeOfDay -ne [timespan]::Zero -or $end.TimeOfDay -ne [timespan]::Zero) {
@@ -199,6 +218,7 @@ function Get-AzStorageTransactionMetric {
             [pscustomobject][ordered]@{
                 RecordType = $Type
                 SubscriptionId = $subscription
+                SubscriptionName = $subscriptionName
                 ResourceGroupName = $resourceGroup
                 StorageAccountName = $accountName
                 ResourceId = $id
@@ -208,6 +228,12 @@ function Get-AzStorageTransactionMetric {
                 SkuName = $sku['name']
                 IsHnsEnabled = $properties['isHnsEnabled']
                 AccountDefaultAccessTier = $properties['accessTier']
+                PrimaryLocation = $properties['primaryLocation']
+                SecondaryLocation = $properties['secondaryLocation']
+                IsSftpEnabled = $properties['isSftpEnabled']
+                IsNfsV3Enabled = $properties['isNfsV3Enabled']
+                ConfigurationObservedAtUtc = $configurationObservedAt
+                ConfigurationHistoryStatus = 'CurrentSnapshotOnly'
                 StartTime = $chunkStart.ToString('o')
                 EndTime = $chunkEnd.ToString('o')
                 SummaryPeriod = if ($Type -eq 'Error') { $SummaryPeriod } else { 'Chunk' }
@@ -241,6 +267,46 @@ function Get-AzStorageTransactionMetric {
                 ChargeType = $null
                 CostSource = $null
                 ComparisonStatus = $null
+                MetricName = $null
+                BlobType = $null
+                AverageUsedBytes = $null
+                AverageObservedBytes = $null
+                ObservedByteHours = $null
+                ExpectedHours = $null
+                ObservedHours = $null
+                MissingHours = $null
+                CapacityStatus = $null
+                CapacityReconciliationStatus = $null
+                QuantityBasis = $null
+                BillingUsageDate = $null
+                MeterRegion = $null
+                BillingResourceLocation = $null
+                MeterCategory = $null
+                ConsumedService = $null
+                PublisherType = $null
+                ProductId = $null
+                PricingModel = $null
+                ReservationId = $null
+                BenefitId = $null
+                EffectivePrice = $null
+                UnitPrice = $null
+                PayGPrice = $null
+                PricingCurrency = $null
+                ExchangeRatePricingToBilling = $null
+                ChargeFrequency = $null
+                CostAllocationRuleName = $null
+                InvoiceId = $null
+                BillingPeriodStartDate = $null
+                BillingPeriodEndDate = $null
+                ServicePeriodStartDate = $null
+                ServicePeriodEndDate = $null
+                BillingCoverageStatus = $null
+                BillingTier = $null
+                BillingRedundancy = $null
+                BillingQuantityKind = $null
+                NormalizedBilledQuantity = $null
+                NormalizedBilledUnit = $null
+                BillingMappingStatus = $null
             }
         }
 
@@ -304,9 +370,12 @@ function Get-AzStorageTransactionMetric {
             $resourceGroup = $parts[4]
             $accountName = $parts[8]
             $account = @{ sku = @{}; properties = @{} }
+            $subscriptionName = $null
+            $configurationObservedAt = $null
             $chunkStart = $start
             $chunkEnd = $end
             $records = [System.Collections.Generic.List[object]]::new()
+            $collected = $false
             try {
                 $matchingContexts = @($contexts | Where-Object { $_.Subscription.Id -eq $subscription })
                 if ($matchingContexts.Count -eq 0) {
@@ -316,7 +385,14 @@ function Get-AzStorageTransactionMetric {
                     throw "Multiple saved Az contexts for subscription $subscription. Retain one unambiguous context before collecting."
                 }
                 $context = $matchingContexts[0]
+                $nameProperty = $context.Subscription.PSObject.Properties['Name']
+                if ($context.Subscription -is [System.Collections.IDictionary]) {
+                    $subscriptionName = $context.Subscription['Name']
+                } elseif ($null -ne $nameProperty) {
+                    $subscriptionName = $nameProperty.Value
+                }
                 $account = Invoke-StorageMetricRequest -Path "${id}?api-version=2023-05-01" -Context $context
+                $configurationObservedAt = [datetimeoffset]::UtcNow.ToString('o')
                 if (-not $account['kind'] -or $account['sku'] -isnot [hashtable] -or
                     -not $account['sku']['name'] -or $account['properties'] -isnot [hashtable]) {
                     throw 'Account response is missing kind, sku or properties.'
@@ -444,16 +520,41 @@ function Get-AzStorageTransactionMetric {
                 } else {
                     $records
                 }
+                $collected = $true
             } catch {
                 # Discard this account's buffered chunks rather than returning partial success.
                 $message = "Failed collecting ${id}: $($_.Exception.Message)"
                 Write-Error -Message $message -ErrorId 'StorageTransactionCollectionFailed' -Category InvalidResult -TargetObject $id
                 New-TransactionRecord -Type 'Error' -Status 'Failed' -Completeness 'Failed' -Message $message
             }
+            if ($IncludeCapacity -and $collected) {
+                $template = $records[0]
+                try {
+                    Get-StorageCapacityRecord -Template $template -Context $context `
+                        -StartTime $start -EndTime $end -ChunkHours $ChunkHours -SummaryPeriod $SummaryPeriod
+                } catch {
+                    $message = "Failed collecting capacity for ${id}: $($_.Exception.Message)"
+                    Write-Error -Message $message -ErrorId 'StorageCapacityCollectionFailed' -Category InvalidResult -TargetObject $id
+                    $failure = $template.PSObject.Copy()
+                    $failure.RecordType = 'CapacityError'
+                    $failure.StartTime = $start.ToString('o')
+                    $failure.EndTime = $end.ToString('o')
+                    $failure.Month = $null
+                    $failure.SummaryPeriod = $SummaryPeriod
+                    $failure.IsPartialMonth = $null
+                    $failure.RequestCount = $null
+                    $failure.CountStatus = $null
+                    $failure.QuantityBasis = 'AzureMonitorSampledUsedCapacity'
+                    $failure.CapacityStatus = 'Failed'
+                    $failure.CompletenessStatus = 'Failed'
+                    $failure.Message = $message
+                    $failure
+                }
+            }
         }
         if ($compareCosts -and $comparisonRecords.Count) {
             Get-StorageTransactionCostComparison -Records $comparisonRecords.ToArray() `
-                -Contexts $contexts -CsvPaths $CostDetailsCsv
+                -Contexts $contexts -CsvPaths $CostDetailsCsv -IncludeDetail:$IncludeCostDetail
         }
     }
 }

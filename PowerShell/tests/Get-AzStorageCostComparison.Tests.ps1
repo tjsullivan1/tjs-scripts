@@ -265,4 +265,155 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
         ($rows | Where-Object RecordType -eq 'CostMeter').BilledOperationCount | Should Be 3
     }
+
+    It 'preserves daily billing evidence and does not merge different rate or benefit contexts' {
+        $first = $script:costRows[0].PSObject.Copy()
+        $first | Add-Member NoteProperty MeterRegion 'US East'
+        $first | Add-Member NoteProperty PricingModel 'OnDemand'
+        $first | Add-Member NoteProperty EffectivePrice '0.4'
+        $first | Add-Member NoteProperty UnitPrice '0.5'
+        $first | Add-Member NoteProperty PayGPrice '0.6'
+        $first | Add-Member NoteProperty PricingCurrency 'USD'
+        $first | Add-Member NoteProperty ReservationId ''
+        $first | Add-Member NoteProperty BenefitId ''
+        $second = $first.PSObject.Copy()
+        $second.Date = $script:start.AddDays(1).ToString('yyyy-MM-dd')
+        $second.PricingModel = 'Reservation'
+        $second.ReservationId = 'reservation'
+        $second.BenefitId = 'benefit'
+        $second.EffectivePrice = '0'
+        $second.CostInBillingCurrency = '0'
+        @($first, $second) | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeCostDetail -ErrorAction Stop)
+        $meters = @($rows | Where-Object RecordType -eq 'CostMeter')
+        $details = @($rows | Where-Object RecordType -eq 'CostDetail')
+        $meters.Count | Should Be 2
+        $details.Count | Should Be 2
+        $details[1].BillingUsageDate | Should Be $script:start.AddDays(1).ToString('yyyy-MM-dd')
+        $details[1].ReservationId | Should Be 'reservation'
+        $details[1].BilledOperationCount | Should Be 3
+        $details[1].ActualCost | Should Be 0
+        $details[0].MeterRegion | Should Be 'US East'
+        $details[0].UnitPrice | Should Be 0.5
+        $details[0].PayGPrice | Should Be 0.6
+        $details[0].BillingCoverageStatus | Should Be 'CsvCoverageUnverified'
+        $rows | Export-Csv "$TestDrive\evidence.csv" -NoTypeInformation
+        (Import-Csv "$TestDrive\evidence.csv" | Where-Object { $_.RecordType -eq 'CostDetail' -and $_.PricingModel -eq 'Reservation' }).BenefitId | Should Be 'benefit'
+    }
+
+    It 'classifies capacity retrieval early deletion and feature quantities without inventing byte units' {
+        $cases = @(
+            @('Hot RA-GRS Data Stored', 'Blob Storage', '1 GB/Month', 'Capacity', 'GiBMonth', 2),
+            @('Hot LRS Index', 'Azure Data Lake Storage Gen2', '1 GB/Month', 'HnsIndexCapacity', 'GiBMonth', 2),
+            @('Cool Data Retrieval', 'Blob Storage', '1 GB', 'Retrieval', 'BillingGB', 2),
+            @('Archive LRS Early Delete', 'Blob Storage', '1 GB', 'EarlyDeletion', 'BillingGB', 2),
+            @('Hot Data Scanned for Query Acceleration', 'Azure Data Lake Storage Gen2', '1 GB', 'QueryAccelerationScanned', 'BillingGB', 2),
+            @('Hot Data Returned for Query Acceleration', 'Azure Data Lake Storage Gen2', '1 GB', 'QueryAccelerationReturned', 'BillingGB', 2),
+            @('Cold ZRS Blob Inventory', 'General Block Blob v2', '1M', 'InventoryObjects', 'Objects', 2000000),
+            @('Hot LRS Named Encryption Scopes', 'Blob Features', '1/Month', 'EncryptionScopes', 'ScopeMonths', 2),
+            @('SSH File Transfer Protocol GRS Hour Enabled', 'Blob Features', '1', 'SftpEnabledHours', 'Hours', 2)
+        )
+        $billingRows = @(
+            for ($index = 0; $index -lt $cases.Count; $index++) {
+                $row = $script:costRows[0].PSObject.Copy()
+                $row.MeterId = "meter-$index"
+                $row.MeterName = $cases[$index][0]
+                $row.MeterSubCategory = $cases[$index][1]
+                $row.UnitOfMeasure = $cases[$index][2]
+                $row.Quantity = '2'
+                $row
+            }
+        )
+        $billingRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
+        for ($index = 0; $index -lt $cases.Count; $index++) {
+            $meter = $rows | Where-Object { $_.RecordType -eq 'CostMeter' -and $_.MeterId -eq "meter-$index" }
+            $meter.BillingQuantityKind | Should Be $cases[$index][3]
+            $meter.NormalizedBilledUnit | Should Be $cases[$index][4]
+            $meter.NormalizedBilledQuantity | Should Be $cases[$index][5]
+            ($null -eq $meter.BilledOperationCount) | Should Be $true
+            $meter.QuantityBasis | Should Be 'BillingReportedUsage'
+        }
+        $capacity = $rows | Where-Object MeterId -eq 'meter-0'
+        $capacity.BillingTier | Should Be 'Hot'
+        $capacity.BillingRedundancy | Should Be 'RA-GRS'
+    }
+
+    It 'normalizes the documented per-100 iterative write unit' {
+        $script:costRows[0].MeterName = 'Hot Iterative Write Operations'
+        $script:costRows[0].MeterSubCategory = 'Azure Data Lake Storage Gen2'
+        $script:costRows[0].Quantity = '2'
+        $script:costRows[0].UnitOfMeasure = '100'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
+        $meter = $rows | Where-Object RecordType -eq 'CostMeter'
+        $meter.BilledOperationCount | Should Be 200
+        $meter.NormalizedBilledQuantity | Should Be 200
+        $meter.BillingMappingStatus | Should Be 'VerifiedOperationUnit'
+    }
+
+    It 'keeps unknown units and unknown meters raw instead of extrapolating quantities' {
+        $script:costRows[0].MeterName = 'LRS Data Stored'
+        $script:costRows[0].UnitOfMeasure = 'MysteryUnits'
+        $unknown = $script:costRows[0].PSObject.Copy()
+        $unknown.MeterId = 'unknown-meter'
+        $unknown.MeterName = 'New Feature'
+        @($script:costRows[0], $unknown) | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
+        ($rows | Where-Object MeterId -eq 'read-meter').BillingMappingStatus | Should Be 'UnverifiedUnit'
+        $meter = $rows | Where-Object MeterId -eq 'unknown-meter'
+        $meter.BillingMappingStatus | Should Be 'Unclassified'
+        ($null -eq $meter.NormalizedBilledQuantity) | Should Be $true
+        $meter.BilledQuantity | Should Be 0.0003
+    }
+
+    It 'supports legacy UsageDateTime and keeps billing coverage independent of Monitor reconciliation' {
+        $row = $script:costRows[0].PSObject.Copy()
+        $row.PSObject.Properties.Remove('Date')
+        $row | Add-Member NoteProperty UsageDateTime ($script:start.ToString('yyyy-MM-ddTHH:mm:ssZ'))
+        $row | Export-Csv $script:csv -NoTypeInformation
+        Set-StrictMode -Version Latest
+        try {
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeCostDetail -ErrorAction Stop)
+            ($rows | Where-Object RecordType -eq 'CostDetail').BillingUsageDate | Should Be $script:start.ToString('yyyy-MM-dd')
+            ($rows | Where-Object RecordType -eq 'CostMeter').CompletenessStatus | Should Be 'CsvCoverageUnverified'
+            ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should Be 'Reconciled'
+        } finally { Set-StrictMode -Off }
+    }
+
+    It 'does not expose detail rows by default and rejects detail without a billing source' {
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
+        @($rows | Where-Object RecordType -eq 'CostDetail').Count | Should Be 0
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostDetail } | Should Throw 'requires IncludeCostComparison or CostDetailsCsv'
+    }
+
+    It 'classifies network meters only in the bandwidth catalog and keeps their raw GB convention' {
+        $row = $script:costRows[0].PSObject.Copy()
+        $row.MeterName = 'Intra Continent Data Transfer Out'
+        $row.MeterSubCategory = 'Bandwidth Inter-Region'
+        $row.UnitOfMeasure = '1 GB'
+        $row.Quantity = '2'
+        $row | Add-Member NoteProperty MeterCategory 'Bandwidth'
+        $row | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
+        $meter = $rows | Where-Object RecordType -eq 'CostMeter'
+        $meter.BillingQuantityKind | Should Be 'NetworkTransfer'
+        $meter.NormalizedBilledUnit | Should Be 'BillingGB'
+        $meter.NormalizedBilledQuantity | Should Be 2
+        ($null -eq $meter.BilledOperationCount) | Should Be $true
+    }
+
+    It 'recognizes geo-replication transfer independently of client bandwidth' {
+        $script:costRows[0].MeterName = 'Geo-Replication v2 Data Transfer'
+        $script:costRows[0].MeterSubCategory = 'Geo-Replication v2'
+        $script:costRows[0].ProductName = 'Storage - Bandwidth'
+        $script:costRows[0].UnitOfMeasure = '1 GB'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
+        $meter = $rows | Where-Object RecordType -eq 'CostMeter'
+        $meter.BillingQuantityKind | Should Be 'GeoReplicationTransfer'
+        $meter.NormalizedBilledUnit | Should Be 'BillingGB'
+        $meter.NormalizedBilledQuantity | Should Be 0.0003
+    }
 }

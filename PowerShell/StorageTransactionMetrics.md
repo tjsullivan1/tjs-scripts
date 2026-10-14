@@ -91,10 +91,12 @@ historical dates.
 
 | Field | Meaning |
 | --- | --- |
-| `RecordType` | `Summary`, `Detail`, `AccountTotal`, `Error`; opt-in `CostComparison`, `CostMeter`, `CostError` |
-| `SubscriptionId`, `ResourceGroupName`, `StorageAccountName`, `ResourceId` | Explicit account identity |
+| `RecordType` | `Summary`, `Detail`, `AccountTotal`, `Error`; opt-in `Capacity`, `CapacityAccountTotal`, `IndexCapacity`, `CapacityError`, `CostComparison`, `CostMeter`, `CostDetail`, `CostError` |
+| `SubscriptionId`, `SubscriptionName`, `ResourceGroupName`, `StorageAccountName`, `ResourceId` | Explicit account identity; subscription name from the saved context, null if unavailable |
 | `MetricResourceId` | Blob service queried |
 | `Location`, `AccountKind`, `SkuName`, `IsHnsEnabled`, `AccountDefaultAccessTier` | Current account configuration; SKU includes redundancy |
+| `PrimaryLocation`, `SecondaryLocation`, `IsSftpEnabled`, `IsNfsV3Enabled` | Current ARM properties, null if absent; not proof of protocol usage |
+| `ConfigurationObservedAtUtc`, `ConfigurationHistoryStatus` | Snapshot time and `CurrentSnapshotOnly`; configuration history is not reconstructed |
 | `StartTime`, `EndTime` | Actual collected period boundaries in UTC, serialized as ISO 8601 strings |
 | `SummaryPeriod` | `Month` (default) or `Chunk` |
 | `Month` | UTC calendar month, `yyyy-MM`; null on errors |
@@ -120,7 +122,8 @@ ConvertTo-Json -InputObject $results -Depth 4 |
 
 # Only combine category summaries after checking every account and period.
 if (@($results | Where-Object {
-    $_.RecordType -eq 'Error' -or $_.CompletenessStatus -ne 'Reconciled'
+    $_.RecordType -eq 'Error' -or
+    ($_.RecordType -in @('AccountTotal', 'Summary', 'Detail') -and $_.CompletenessStatus -ne 'Reconciled')
 }).Count) {
     throw 'At least one account/period is failed or incomplete; do not aggregate.'
 }
@@ -146,6 +149,74 @@ CSV represents null as an empty cell; JSON preserves `null` explicitly.
 To see just the total transactions per account/month, filter
 `$results | Where-Object RecordType -eq 'AccountTotal'`. Do not add category
 summaries to those totals.
+
+## Historical capacity for pricing preparation
+
+Add `-IncludeCapacity` to collect used capacity for the same historical range.
+Keep `StorageCapacityMetrics.ps1` beside the main script. The same Az contexts,
+management-plane RBAC and 93-day retention limit apply. This mode requires
+whole-hour start/end boundaries; ordinary transaction collection still accepts
+whole minutes.
+
+```powershell
+$results = @($ids | Get-AzStorageTransactionMetric `
+    -StartTime $start -EndTime $end -IncludeDetail -IncludeCapacity `
+    -CostDetailsCsv @('.\cost-part1.csv', '.\cost-part2.csv') `
+    -IncludeCostDetail -ErrorAction Stop)
+
+$results | Where-Object RecordType -eq 'Capacity' |
+    Select-Object StorageAccountName, Month, Tier, BlobType, AverageUsedBytes,
+        ExpectedHours, ObservedHours, MissingHours, CapacityStatus
+$results | Where-Object RecordType -eq 'CostDetail' |
+    Export-Csv .\storage-billing-evidence.csv -NoTypeInformation
+$results | Export-Csv .\storage-workload.csv -NoTypeInformation
+ConvertTo-Json -InputObject $results -Depth 4 |
+    Set-Content .\storage-workload.json -Encoding utf8
+```
+
+The collector requests `BlobCapacity` with **Average** aggregation and `PT1H`
+intervals, split by `Tier` and `BlobType`, and a separate unsplit Blob-service
+series. For accounts with `IsHnsEnabled = true`, it also requests `IndexCapacity`
+without dimensions. It does not use parent `UsedCapacity` (which includes other
+storage services), `BlobProvisionedSize`, or a current listing of blob lengths.
+
+| Capacity field | Meaning |
+| --- | --- |
+| `RecordType` | `Capacity`: tier/blob-type used capacity; `CapacityAccountTotal`: overlapping unsplit total; `IndexCapacity`: separate HNS index space |
+| `MetricName`, `Tier`, `BlobType` | Exact metric and original split dimensions; index/total dimensions are null |
+| `ObservedByteHours` | Integral of available hourly averages, one hour per sample; null if none |
+| `AverageObservedBytes` | Average over available hours only; can describe an incomplete dataset |
+| `AverageUsedBytes` | Period average only when all expected hours are numeric and Blob split/unsplit reconciliation is complete; otherwise null |
+| `ExpectedHours`, `ObservedHours`, `MissingHours` | Coverage of the actual requested month/chunk, including explicit null and absent points |
+| `CapacityStatus` | `CompleteSamples`, `IncompleteSamples`, or `Failed` |
+| `CapacityReconciliationStatus` | `ReconciledSamples`, `MissingSamples`, or `NotApplicable` for index |
+| `QuantityBasis` | `AzureMonitorSampledUsedCapacity`, not an assertion of billable capacity |
+
+Monthly output weights hourly samples, not query-window averages. An incomplete
+chunk or missing tier series is never filled with zero or carried forward.
+An empty successful response produces an unavailable `Capacity` row with null
+dimensions and average, not a confirmed zero. Missing tiers are not emitted as
+zero rows. An explicit numeric zero is retained as zero.
+`-SummaryPeriod Chunk` produces capacity records per query window instead.
+
+Each available hour's split sum is checked against the unsplit average.
+The tolerance is the larger of one byte or one part per billion of the total,
+to accommodate numeric rounding. Duplicate series/timestamps, unexpected
+dimensions/units/intervals, a reached series cap, out-of-window points and
+reconciliation mismatches fail explicitly. Missing points produce warnings and
+coverage statuses instead. `CapacityError` discards buffered capacity output
+for the account, but does not discard its already collected transactions or
+prevent billing comparisons under nonterminating error handling.
+`-ErrorAction Stop` terminates on a capacity failure.
+
+Microsoft's [metric reference](https://learn.microsoft.com/en-us/azure/storage/blobs/monitor-blob-storage-reference)
+documents these dimensions, but capacity is recomputed multiple times daily,
+not refreshed every hour. Even `CompleteSamples` is a sampled used-capacity
+estimate, not a complete billing ledger. Keep HNS index separate from Blob data.
+Convert Blob capacity bytes to GiB using 1,073,741,824 bytes per GiB, and use
+the actual calendar-month duration for proration. Do not treat available-hour
+averages as a complete month's capacity, or use account default tier as a
+substitute for observed tier distribution.
 
 ## Cross-checking Cost Management
 
@@ -182,7 +253,7 @@ $results | Export-Csv .\storage-cost-comparison.csv -NoTypeInformation
 
 CSV input supports standard Cost Management usage-details columns, not a
 Cost Analysis pivot or FOCUS export. It reads `ResourceId`/`InstanceId`,
-`Date`/`UsageDate`/`UsageStart`, `MeterId`, `MeterName`, `MeterSubCategory`,
+`Date`/`UsageDate`/`UsageStart`/`UsageDateTime`, `MeterId`, `MeterName`, `MeterSubCategory`,
 `Quantity`/`UsageQuantity`, `UnitOfMeasure`, `ChargeType`,
 `CostInBillingCurrency`/`Cost`/`PreTaxCost`, and
 `BillingCurrency`/`BillingCurrencyCode`/`Currency`.
@@ -260,7 +331,8 @@ Azure Monitor cannot supply the corresponding byte counts.
 `CostMeter` rows retain every selected-account meter, including capacity,
 bandwidth, Defender, refunds and unknown operations. They combine only rows
 with the same account/month, meter ID/name, subcategory/product, unit, currency
-and charge type. `BilledQuantity` is the original meter quantity; `ActualCost`
+and charge type, and identical retained region, service, pricing/benefit, rate,
+invoice and period context. `BilledQuantity` is the original meter quantity; `ActualCost`
 is the sum of reported costs in `Currency`, before credits/taxes as defined by
 Cost Management. These are not calculated from retail prices.
 
@@ -268,8 +340,10 @@ The first mapping supports exact read, write, iterative read/write, other,
 and list/create-container operation names in `Blob Storage`,
 `General Block Blob`, and `Azure Data Lake Storage Gen2` subcategories.
 Known leading access-tier/redundancy labels are stripped for this mapping;
-other names remain unmapped. Supported operation units are `10K`,
-`10,000 Operations`, and `1 Operations`. Unknown units remain unconverted.
+other names remain unmapped. `General Block Blob v2` is also recognized.
+Supported operation units are `10K`, `10,000 Operations`, `1 Operations`,
+`100`, and `100 Operations`; per-100 iterative write units occur in the public
+Azure catalog. Unknown units remain unconverted.
 For example, `Standard Transactions` in `Microsoft Defender for Storage`
 is a separate charge, not a Blob operation count.
 
@@ -291,6 +365,14 @@ Additional flat fields are present (null on ordinary metric rows):
 | `MeterId`, `MeterName`, `MeterSubCategory`, `ProductName`, `ChargeType` | Billing identity/context on meter rows |
 | `CostSource` | `CostDetailsApi` or `Csv` |
 | `ComparisonStatus` | Comparison/mapping outcome |
+| `BillingUsageDate` | Original daily UTC usage date on opt-in `CostDetail` rows; null on monthly `CostMeter` aggregates |
+| `MeterRegion`, `BillingResourceLocation`, `MeterCategory`, `ConsumedService`, `PublisherType`, `ProductId` | Billing context, distinct from the current resource snapshot |
+| `PricingModel`, `ReservationId`, `BenefitId` | Financial coverage metadata; never reduces measured quantities |
+| `EffectivePrice`, `UnitPrice`, `PayGPrice`, `PricingCurrency`, `ExchangeRatePricingToBilling` | Available reported rates and currency basis; null if absent, not inferred from costs |
+| `ChargeFrequency`, `CostAllocationRuleName`, `InvoiceId`, billing/service period start/end dates | Reported chargeback, invoice and period context; frequency does not prove recurring versus migration usage |
+| `BillingQuantityKind`, `BillingTier`, `BillingRedundancy` | Recognized meter semantics and leading catalog labels; unknowns remain null |
+| `NormalizedBilledQuantity`, `NormalizedBilledUnit`, `BillingMappingStatus` | Verified unit conversion or `UnverifiedUnit`/`Unclassified`; raw quantity/unit always retained |
+| `BillingCoverageStatus` | `CsvCoverageUnverified` or `ReportPartitionsRead`; neither guarantees final invoice completeness |
 
 Comparison statuses are `CountsMatch`, `CountsDiffer`, `MetricsIncomplete`,
 `NoMatchingBillingMeter`, or `UnverifiedUnit`. A missing meter means null billed
@@ -302,9 +384,38 @@ Unknown operation meters stay visible and are not guessed into categories.
 Refunds/other charge types remain meter rows and are not subtracted from Usage
 operation comparisons.
 
-Query-acceleration meters, if returned, remain raw `CostMeter` rows with their
-reported quantities/units/costs. This version does not normalize those meters
-to bytes or compare them with Monitor's unavailable byte fields.
+Use `-IncludeCostDetail` with either billing mode to retain every matched
+daily report row as `CostDetail`, without merging rows. It is opt-in because it
+can considerably increase output size. These rows preserve zero-cost reservation
+usage and rates/benefits when present. Missing optional financial metadata stays
+null; malformed numeric rates fail rather than silently disappearing.
+`UsageDateTime` is supported for legacy usage files. `EffectivePrice` also accepts
+the legacy `ResourceRate`, and `PayGPrice` accepts `pay-as-you-goPrice`.
+
+The exact-name meter registry recognizes Blob data/index capacity, retrieval
+(including priority retrieval), early deletion, query acceleration scanned/returned,
+inventory objects, index tags, encryption scopes, SFTP hours, restore data,
+and verified geo-replication/network transfer names. Catalog context excludes
+Defender, Files, Queue and Table from Blob quantity mappings. Unrecognized features
+such as a new change-feed meter remain raw and `Unclassified`; a familiar-looking
+name alone is not enough to guess its quantity.
+
+Capacity/index `1 GB/Month` is normalized to **GiBMonth**, following Microsoft's
+[binary Blob capacity billing units](https://learn.microsoft.com/en-us/azure/storage/common/storage-plan-manage-costs).
+Operation units become Operations; inventory `1M` becomes Objects; index tags
+`10K/Month` become TagMonths; encryption `1/Month` becomes ScopeMonths; verified
+SFTP hour meters become Hours. Other `1 GB`/`1 MB` meters retain **BillingGB** or
+**BillingMB** rather than assuming a byte conversion. Query-acceleration billing
+quantities remain separate from Monitor's unavailable byte observations.
+Early-delete GB does not reconstruct object retention or remaining byte-days.
+Geo-transfer quantities describe the billed current configuration, not a measured
+logical mutation volume reusable for a currently non-geo account.
+
+Billing records use their own coverage status rather than inheriting Monitor's
+`Reconciled` status. Reading every live report partition establishes report
+retrieval, not finality, account-wide cost attribution or complete workload
+measurement. Unassigned charges, reservation purchases and charges on other
+resources remain outside selected-account quantities.
 
 Cost failures write to the error stream and emit `CostError` rows with
 `ComparisonStatus: Failed` and the failure message. They do not discard valid
@@ -313,7 +424,7 @@ With `-ErrorAction Stop`, the invocation terminates; earlier Monitor output may
 already have reached a pipeline consumer. Check both metric completeness and
 cost statuses before using the results.
 
-**Never sum `CostMeter` and `CostComparison` costs together**: they overlap.
+**Never sum `CostDetail`, `CostMeter` and `CostComparison` costs together**: they overlap.
 For total reported cost across selected accounts, use only `CostMeter` rows,
 grouped by currency and charge type. Some meters are unrelated to Blob requests,
 and unassigned/non-account subscription charges are outside this report.
@@ -501,6 +612,29 @@ $test = Invoke-Pester -Script .\PowerShell\tests -PassThru
 if ($test.FailedCount) { throw "$($test.FailedCount) tests failed." }
 ```
 
+Capacity tests exercise the same public function with mocked hourly responses:
+unequal chunk lengths, tier splits, HNS index, missing/zero/empty samples,
+month boundaries, reconciliation, duplicate timestamps/series, failures,
+multiple accounts, strict mode and CSV fields. Billing tests also cover daily
+evidence, benefit/rate separation, per-100 units, verified non-operation quantities
+and unknown meters/units. No tests require Azure credentials.
+
+## Remaining pricing-model gaps
+
+These extensions collect historical capacity and preserve richer billing
+evidence; they do not implement independent price selection or redundancy scenarios.
+Validate the current configuration against comparable billing before applying
+ZRS, GRS, GZRS or RA-GRS prices. Keep reservations/negotiated rates separate,
+and do not use chargeback dollars per GB or arbitrary SKU multipliers as prices.
+Retrieval, replication, early deletion and endpoint history may still require
+already-existing logs/inventory/application telemetry or reviewed supplements.
+Billing-derived quantities are labeled as such, not independent Monitor evidence.
+
+Archive data cannot remain unchanged under ZRS/GZRS. Secondary-read-dependent
+workloads cannot retain their access pattern under non-RA targets. Check region,
+kind/performance and architecture eligibility before ranking costs, and keep
+migration, seeding and rehydration costs separate from recurring monthly run rate.
+
 ## Live validation
 
 Run once against six Standard_LRS StorageV2 accounts (one subscription, 7 UTC days, 24h chunks): all accounts returned without errors and every chunk reconciled split vs. unsplit totals. Idle accounts returned explicit zeros. Counts were not compared with Portal Metrics Explorer.
@@ -521,3 +655,11 @@ Capacity, bandwidth and Defender charges were retained separately. No
 query-acceleration meters were present.
 The reported selected-account costs totaled `0.003529548 USD`, including the
 non-operation meters. CSV-input comparisons matched the live API results.
+
+The capacity extension was checked live for `samnsigs001` in September 2026.
+It returned Hot/BlockBlob capacity with all 720 expected hourly samples and
+reconciled split/unsplit averages: 9,736,770 bytes. The same run used the saved
+September cost-details CSV and retained 54 daily evidence rows, classifying
+capacity, operations and network meters while preserving rates and pricing context.
+This checks one single-tier, non-HNS account; it is not validation of every
+capacity configuration or an independently calculated cost baseline.

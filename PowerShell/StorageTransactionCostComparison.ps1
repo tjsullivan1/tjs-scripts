@@ -12,7 +12,8 @@ function Get-StorageTransactionCostComparison {
     param(
         [Parameter(Mandatory)][object[]]$Records,
         [Parameter(Mandatory)][object[]]$Contexts,
-        [string[]]$CsvPaths
+        [string[]]$CsvPaths,
+        [switch]$IncludeDetail
     )
 
     function Get-CostField {
@@ -132,7 +133,7 @@ function Get-StorageTransactionCostComparison {
     }
 
     function New-CostMeter {
-        param([object]$Row, [object]$Template)
+        param([object]$Row, [object]$Template, [datetimeoffset]$UsageDate)
         $record = $Template.PSObject.Copy()
         $record.RecordType = 'CostMeter'
         $record.Category = $null
@@ -147,12 +148,34 @@ function Get-StorageTransactionCostComparison {
         $record.ChargeType = Get-CostField $Row @('ChargeType') -Required
         $record.BilledQuantity = Get-CostDecimal (Get-CostField $Row @('Quantity', 'UsageQuantity') -Required) 'Quantity'
         $record.ActualCost = Get-CostDecimal (Get-CostField $Row @('CostInBillingCurrency', 'Cost', 'PreTaxCost') -Required) 'ActualCost'
+        $record.BillingUsageDate = $UsageDate.ToUniversalTime().ToString('yyyy-MM-dd', [cultureinfo]::InvariantCulture)
+        foreach ($field in $contextFields.Keys) {
+            $text = Get-CostField $Row $contextFields[$field]
+            $record.$field = $text
+            if ($field -in $numericContextFields -and $null -ne $text) {
+                $record.$field = Get-CostDecimal $text $field
+            }
+        }
+        $record.BillingCoverageStatus = $billingCoverage
+        $record.CompletenessStatus = $billingCoverage
+        $record.QuantityBasis = 'BillingReportedUsage'
+        $record.BillingMappingStatus = 'Unclassified'
         $record.ComparisonStatus = 'NotOperationMeter'
         $record.CostSource = $costSource
         # Catalog context excludes Defender, Files, Queue and Table meters.
-        if ($record.MeterSubCategory -in @('Blob Storage', 'General Block Blob', 'Azure Data Lake Storage Gen2')) {
-            $name = $record.MeterName -replace '^(Hot|Cool|Cold|Archive) ', ''
-            $name = $name -replace '^(LRS|ZRS|GRS|RA-GRS|GZRS|RA-GZRS) ', ''
+        $blobCatalog = $record.MeterSubCategory -in @('Blob Storage', 'General Block Blob', 'General Block Blob v2', 'Azure Data Lake Storage Gen2')
+        $name = $record.MeterName
+        if ($blobCatalog -or $record.MeterSubCategory -eq 'Blob Features') {
+            if ($name -match '^(Hot|Cool|Cold|Archive) (.+)$') {
+                $record.BillingTier = $Matches[1]
+                $name = $Matches[2]
+            }
+            if ($name -match '^(LRS|ZRS|GRS|RA-GRS|GZRS|RA-GZRS) (.+)$') {
+                $record.BillingRedundancy = $Matches[1]
+                $name = $Matches[2]
+            }
+        }
+        if ($blobCatalog) {
             $meterCategories = @{
                 'Read Operations' = 'Reads'
                 'Write Operations' = 'Writes'
@@ -168,25 +191,101 @@ function Get-StorageTransactionCostComparison {
                     '10K' { [decimal]10000 }
                     '10,000 Operations' { [decimal]10000 }
                     '1 Operations' { [decimal]1 }
+                    '100' { [decimal]100 }
+                    '100 Operations' { [decimal]100 }
                     default { $null }
                 }
                 if ($null -eq $multiplier) {
                     $record.ComparisonStatus = 'UnverifiedUnit'
                 } else {
                     $record.BilledOperationCount = $record.BilledQuantity * $multiplier
+                    $record.NormalizedBilledQuantity = $record.BilledOperationCount
+                    $record.NormalizedBilledUnit = 'Operations'
                 }
+                $record.BillingQuantityKind = 'Operations'
+                $record.BillingMappingStatus = $record.ComparisonStatus
             } elseif ($record.MeterName -match 'Operation|Transaction') {
                 $record.ComparisonStatus = 'UnmappedOperationMeter'
+                $record.BillingMappingStatus = 'UnmappedOperationMeter'
+            }
+        }
+        if (-not $record.BillingQuantityKind) {
+            # Exact names are catalog-backed; a GB label is not assumed to mean bytes.
+            $quantityKinds = @{
+                'Data Stored' = 'Capacity'; 'Index' = 'HnsIndexCapacity'
+                'Data Retrieval' = 'Retrieval'; 'Priority Data Retrieval' = 'Retrieval'
+                'Early Delete' = 'EarlyDeletion'
+                'Data Scanned for Query Acceleration' = 'QueryAccelerationScanned'
+                'Data Returned for Query Acceleration' = 'QueryAccelerationReturned'
+                'Blob Inventory' = 'InventoryObjects'; 'Index Tags' = 'IndexTags'
+                'Named Encryption Scopes' = 'EncryptionScopes'
+            }
+            if (($blobCatalog -or $record.MeterSubCategory -eq 'Blob Features') -and $quantityKinds.ContainsKey($name)) {
+                $record.BillingQuantityKind = $quantityKinds[$name]
+            } elseif ($record.MeterSubCategory -eq 'Blob Features' -and
+                $record.MeterName -match '^SSH File Transfer Protocol (LRS|ZRS|GRS|RA-GRS|GZRS|RA-GZRS) Hour Enabled$') {
+                $record.BillingQuantityKind = 'SftpEnabledHours'
+                $record.BillingRedundancy = $Matches[1]
+            } elseif ($record.MeterSubCategory -eq 'Blob Features' -and
+                $record.MeterName -match '^Point-in-time Restore (LRS|GRS) Data Processed$') {
+                $record.BillingQuantityKind = 'RestoreDataProcessed'
+                $record.BillingRedundancy = $Matches[1]
+            } elseif ($record.MeterCategory -eq 'Bandwidth' -and
+                $record.MeterName -in @('Intra Continent Data Transfer Out', 'Inter Continent Data Transfer Out', 'Standard Data Transfer Out')) {
+                $record.BillingQuantityKind = 'NetworkTransfer'
+            } elseif (($record.ProductName -eq 'Storage - Bandwidth' -or
+                    $record.MeterSubCategory -in @('Geo-Replication', 'Geo-Replication v2')) -and
+                $record.MeterName -in @('Geo-Replication Data Transfer', 'Geo-Replication v2 Data Transfer')) {
+                $record.BillingQuantityKind = 'GeoReplicationTransfer'
+            }
+            if ($record.BillingQuantityKind) {
+                $unit = $null
+                $multiplier = [decimal]1
+                switch ($record.BillingQuantityKind) {
+                    { $_ -in @('Capacity', 'HnsIndexCapacity') } {
+                        if ($record.UnitOfMeasure -in @('1 GB/Month', 'GB/Month')) { $unit = 'GiBMonth' }
+                    }
+                    { $_ -in @('Retrieval', 'EarlyDeletion', 'GeoReplicationTransfer', 'QueryAccelerationScanned', 'QueryAccelerationReturned', 'NetworkTransfer') } {
+                        if ($record.UnitOfMeasure -in @('1 GB', 'GB')) { $unit = 'BillingGB' }
+                    }
+                    'SftpEnabledHours' { if ($record.UnitOfMeasure -in @('1', '1 Hour')) { $unit = 'Hours' } }
+                    'InventoryObjects' { if ($record.UnitOfMeasure -eq '1M') { $unit = 'Objects'; $multiplier = 1000000 } }
+                    'IndexTags' { if ($record.UnitOfMeasure -eq '10K/Month') { $unit = 'TagMonths'; $multiplier = 10000 } }
+                    'EncryptionScopes' { if ($record.UnitOfMeasure -eq '1/Month') { $unit = 'ScopeMonths' } }
+                    'RestoreDataProcessed' { if ($record.UnitOfMeasure -eq '1 MB') { $unit = 'BillingMB' } }
+                }
+                $record.BillingMappingStatus = if ($unit) { 'VerifiedMeterUnit' } else { 'UnverifiedUnit' }
+                if ($unit) {
+                    $record.NormalizedBilledUnit = $unit
+                    $record.NormalizedBilledQuantity = $record.BilledQuantity * $multiplier
+                }
             }
         }
         if ($record.ChargeType -ne 'Usage') {
             $record.ComparisonStatus = 'NonUsageCharge'
             $record.BilledOperationCount = $null
+            $record.NormalizedBilledQuantity = $null
+            $record.NormalizedBilledUnit = $null
+            $record.BillingMappingStatus = 'NonUsageCharge'
         }
         return $record
     }
 
     $costSource = if ($CsvPaths) { 'Csv' } else { 'CostDetailsApi' }
+    $billingCoverage = if ($CsvPaths) { 'CsvCoverageUnverified' } else { 'ReportPartitionsRead' }
+    $numericContextFields = @('EffectivePrice', 'UnitPrice', 'PayGPrice', 'ExchangeRatePricingToBilling')
+    $contextFields = @{
+        MeterRegion = @('MeterRegion'); BillingResourceLocation = @('ResourceLocation', 'Location')
+        MeterCategory = @('MeterCategory'); ConsumedService = @('ConsumedService')
+        PublisherType = @('PublisherType'); ProductId = @('ProductId')
+        PricingModel = @('PricingModel'); ReservationId = @('ReservationId'); BenefitId = @('BenefitId')
+        EffectivePrice = @('EffectivePrice', 'ResourceRate'); UnitPrice = @('UnitPrice')
+        PayGPrice = @('PayGPrice', 'pay-as-you-goPrice'); PricingCurrency = @('PricingCurrency')
+        ExchangeRatePricingToBilling = @('ExchangeRatePricingToBilling'); ChargeFrequency = @('Frequency')
+        CostAllocationRuleName = @('CostAllocationRuleName'); InvoiceId = @('InvoiceId')
+        BillingPeriodStartDate = @('BillingPeriodStartDate'); BillingPeriodEndDate = @('BillingPeriodEndDate')
+        ServicePeriodStartDate = @('ServicePeriodStartDate'); ServicePeriodEndDate = @('ServicePeriodEndDate')
+    }
     $csvRows = @()
     $csvFailure = $null
     if ($CsvPaths) {
@@ -215,7 +314,7 @@ function Get-StorageTransactionCostComparison {
                 if (-not $resource) { $unassignedCount++; continue }
                 $template = @($templates | Where-Object ResourceId -eq $resource)
                 if (-not $template.Count) { continue }
-                $dateText = Get-CostField $row @('Date', 'UsageDate', 'UsageStart') -Required
+                $dateText = Get-CostField $row @('Date', 'UsageDate', 'UsageStart', 'UsageDateTime') -Required
                 $date = [datetimeoffset]::MinValue
                 [string[]]$formats = @('yyyy-MM-dd', 'MM/dd/yyyy', 'M/d/yyyy', 'yyyy-MM-ddTHH:mm:ssZ',
                     'yyyy-MM-ddTHH:mm:sszzz', 'o')
@@ -224,29 +323,42 @@ function Get-StorageTransactionCostComparison {
                     throw 'Invalid or unsupported cost details usage date.'
                 }
                 if ($date -lt [datetimeoffset]$template[0].StartTime -or $date -ge [datetimeoffset]$template[0].EndTime) { continue }
-                $meters.Add((New-CostMeter -Row $row -Template $template[0]))
+                $meters.Add((New-CostMeter -Row $row -Template $template[0] -UsageDate $date))
             }
             if ($unassignedCount) {
                 Write-Warning "$unassignedCount unassigned cost rows cannot be attributed to selected accounts and were excluded."
             }
             $output = [System.Collections.Generic.List[object]]::new()
             $meterGroups = $meters | Group-Object -CaseSensitive -Property {
-                ConvertTo-Json -InputObject @($_.ResourceId.ToLowerInvariant(), $_.MeterId,
+                $groupKey = @($_.ResourceId.ToLowerInvariant(), $_.MeterId,
                     $_.MeterName, $_.MeterSubCategory, $_.ProductName, $_.UnitOfMeasure,
-                    $_.Currency, $_.ChargeType) -Compress
+                    $_.Currency, $_.ChargeType)
+                foreach ($field in ($contextFields.Keys | Sort-Object)) { $groupKey += $_.$field }
+                ConvertTo-Json -InputObject $groupKey -Compress
             }
             foreach ($group in $meterGroups) {
                 $record = $group.Group[0].PSObject.Copy()
                 $record.BilledQuantity = [decimal]0
                 $record.ActualCost = [decimal]0
+                $record.BillingUsageDate = $null
                 $count = [decimal]0
+                $normalized = [decimal]0
                 foreach ($meter in $group.Group) {
                     $record.BilledQuantity += $meter.BilledQuantity
                     $record.ActualCost += $meter.ActualCost
                     if ($null -ne $meter.BilledOperationCount) { $count += $meter.BilledOperationCount }
+                    if ($null -ne $meter.NormalizedBilledQuantity) { $normalized += $meter.NormalizedBilledQuantity }
                 }
                 if ($null -ne $record.BilledOperationCount) { $record.BilledOperationCount = $count }
+                if ($null -ne $record.NormalizedBilledQuantity) { $record.NormalizedBilledQuantity = $normalized }
                 $output.Add($record)
+            }
+            if ($IncludeDetail) {
+                foreach ($meter in $meters) {
+                    $detail = $meter.PSObject.Copy()
+                    $detail.RecordType = 'CostDetail'
+                    $output.Add($detail)
+                }
             }
             foreach ($template in $templates) {
                 $summaries = @($Records | Where-Object {
@@ -263,6 +375,7 @@ function Get-StorageTransactionCostComparison {
                         $comparison = $summary.PSObject.Copy()
                         $comparison.RecordType = 'CostComparison'
                         $comparison.CostSource = $costSource
+                        $comparison.BillingCoverageStatus = $billingCoverage
                         $comparison.Currency = $currencyGroup.Name
                         $comparison.ComparisonStatus = 'NoMatchingBillingMeter'
                         if ($currencyGroup.Group.Count) {
