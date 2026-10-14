@@ -3,7 +3,8 @@
 [`Get-AzStorageTransactionMetric.ps1`](Get-AzStorageTransactionMetric.ps1) collects
 Azure Monitor **observed request counts** across explicitly selected storage
 accounts. It returns flat `PSCustomObject` records for pipelines, CSV, JSON and
-downstream scripts. It does not calculate prices or use Cost Management.
+downstream scripts. It does not calculate prices. Cost Management comparisons
+are optional; normal collection makes no billing requests.
 Results default to **UTC calendar-month totals** per account and category.
 
 ## Scope and prerequisites
@@ -90,7 +91,7 @@ historical dates.
 
 | Field | Meaning |
 | --- | --- |
-| `RecordType` | `Summary`, `Detail`, `AccountTotal`, or `Error` |
+| `RecordType` | `Summary`, `Detail`, `AccountTotal`, `Error`; opt-in `CostComparison`, `CostMeter`, `CostError` |
 | `SubscriptionId`, `ResourceGroupName`, `StorageAccountName`, `ResourceId` | Explicit account identity |
 | `MetricResourceId` | Blob service queried |
 | `Location`, `AccountKind`, `SkuName`, `IsHnsEnabled`, `AccountDefaultAccessTier` | Current account configuration; SKU includes redundancy |
@@ -148,15 +149,62 @@ summaries to those totals.
 
 ## Cross-checking Cost Management
 
-This collector remains Azure Monitor-only. A cost comparison needs a separate
-source of **billed usage quantities**, not just the currency totals in Cost
-Analysis. The smallest first check is a downloaded usage-details CSV for one
-completed month and the same account IDs, plus this script's monthly results
-with `-IncludeDetail`.
+Use `-IncludeCostComparison` for a live **actual-cost** report, or
+`-CostDetailsCsv` for existing actual-cost usage-details CSV files. Both retain
+the Monitor records and append separate billing/comparison records. CSV input
+takes precedence if both parameters are specified. Keep
+`StorageTransactionCostComparison.ps1` beside the main script; it is loaded
+only when comparison is requested.
+
+Comparisons require completed UTC calendar months and `-SummaryPeriod Month`.
+The same 93-day Monitor retention limit applies. Each month is queried
+separately, with one report per subscription/month, not per storage account.
+
+```powershell
+# Live Cost Details API (requires cost-data access).
+$results = @($ids | Get-AzStorageTransactionMetric `
+    -StartTime '2026-09-01T00:00:00Z' -EndTime '2026-10-01T00:00:00Z' `
+    -IncludeDetail -IncludeCostComparison -ErrorAction Stop)
+
+# Offline billing source; Monitor metrics still use the existing Az contexts.
+# Include EVERY CSV partition from one actual-cost report/export, exactly once.
+$results = @($ids | Get-AzStorageTransactionMetric `
+    -StartTime '2026-09-01T00:00:00Z' -EndTime '2026-10-01T00:00:00Z' `
+    -IncludeDetail -CostDetailsCsv @('.\cost-part1.csv', '.\cost-part2.csv') `
+    -ErrorAction Stop)
+
+$results | Where-Object RecordType -eq 'CostComparison' |
+    Select-Object StorageAccountName, Month, Category, RequestCount,
+        BilledOperationCount, RequestMinusBilledCount, ActualCost, Currency,
+        ComparisonStatus
+$results | Export-Csv .\storage-cost-comparison.csv -NoTypeInformation
+```
+
+CSV input supports standard Cost Management usage-details columns, not a
+Cost Analysis pivot or FOCUS export. It reads `ResourceId`/`InstanceId`,
+`Date`/`UsageDate`/`UsageStart`, `MeterId`, `MeterName`, `MeterSubCategory`,
+`Quantity`/`UsageQuantity`, `UnitOfMeasure`, `ChargeType`,
+`CostInBillingCurrency`/`Cost`/`PreTaxCost`, and
+`BillingCurrency`/`BillingCurrencyCode`/`Currency`.
+`ProductName`/`Product` is preserved when present. Dates must be ISO dates,
+ISO offset timestamps, or US `MM/dd/yyyy` dates; numbers use invariant decimal
+notation. Supply actual-cost data, not amortized data. The importer cannot
+prove that a hand-supplied export has all partitions or days.
+Do not mix overlapping reports. Duplicate paths are rejected, but different
+files containing overlapping charges cannot be reliably deduplicated without
+stable charge IDs.
+
+Live retrieval uses the asynchronous Cost Details report API. It honors
+`Retry-After`, limits polling to 30 attempts/10 minutes per report, validates
+ARM polling locations, checks the CSV manifest and downloads every partition.
+Uncompressed CSV reports are supported. Signed download URLs are not output
+or persisted, and temporary CSV downloads are deleted even on failure.
+The function does not create storage accounts, scheduled exports or diagnostic
+settings, and does not change the selected Az context.
 
 The data access route depends on the billing offer:
 
-- For Visual Studio or MOSP/pay-as-you-go subscriptions, Microsoft recommends
+- For Visual Studio or MOSP/pay-as-you-go billing offers, Microsoft recommends
   [Exports or the Consumption Usage Details API](https://learn.microsoft.com/en-us/azure/cost-management-billing/automate/get-usage-details-legacy-customer).
   The newer Cost Details report API does not currently support those offers.
   A portal usage-details download is also suitable for a one-off comparison;
@@ -164,6 +212,12 @@ The data access route depends on the billing offer:
 - For EA/MCA, the [Cost Details report API](https://learn.microsoft.com/en-us/azure/cost-management-billing/automate/get-small-usage-datasets-on-demand)
   generates an asynchronous downloadable report. Automation must poll with
   `Retry-After` and read every report partition. Exports are another option.
+
+Do not choose the API solely from the subscription's display name or
+`PayAsYouGo` quota label. The live `mnsigs` check returned modern billing data
+and successfully generated a Cost Details report despite that quota label.
+The script tries only the report API; unsupported offers fail explicitly with
+guidance to provide CSV. It does not silently fall back to the Consumption API.
 
 The identity needs [cost-data read access](https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/assign-access-acm-data),
 typically Cost Management Reader at subscription scope, with any required
@@ -173,7 +227,7 @@ requires data-plane read access to its destination. Creating a scheduled export
 requires export-management and destination-storage permissions; a CSV importer
 does not.
 
-A comparison would:
+A comparison uses these rules:
 
 1. Read the offer-specific [usage fields](https://learn.microsoft.com/en-us/azure/cost-management-billing/automate/understand-usage-details-fields):
    resource ID (`ResourceId`/`InstanceId`), usage date/range, `MeterId`,
@@ -200,6 +254,76 @@ produce multiple billed transactions from one request. Keep response/tier
 details for diagnosis rather than applying an invented billability filter.
 The billed query-acceleration quantities can validate those costs even though
 Azure Monitor cannot supply the corresponding byte counts.
+
+### Comparison records and limitations
+
+`CostMeter` rows retain every selected-account meter, including capacity,
+bandwidth, Defender, refunds and unknown operations. They combine only rows
+with the same account/month, meter ID/name, subcategory/product, unit, currency
+and charge type. `BilledQuantity` is the original meter quantity; `ActualCost`
+is the sum of reported costs in `Currency`, before credits/taxes as defined by
+Cost Management. These are not calculated from retail prices.
+
+The first mapping supports exact read, write, iterative read/write, other,
+and list/create-container operation names in `Blob Storage`,
+`General Block Blob`, and `Azure Data Lake Storage Gen2` subcategories.
+Known leading access-tier/redundancy labels are stripped for this mapping;
+other names remain unmapped. Supported operation units are `10K`,
+`10,000 Operations`, and `1 Operations`. Unknown units remain unconverted.
+For example, `Standard Transactions` in `Microsoft Defender for Storage`
+is a separate charge, not a Blob operation count.
+
+`CostComparison` rows compare one observed account/month/category total with
+the sum of its mapped **Usage** meters, separately by billing currency.
+The observed category count spans all tiers; use the `CostMeter` and `Detail`
+rows to investigate tier/response differences. If multiple currencies occur,
+the observed count is repeated for each currency, not divided between them.
+Do not add those repeated observed counts.
+
+Additional flat fields are present (null on ordinary metric rows):
+
+| Field | Meaning |
+| --- | --- |
+| `BilledQuantity`, `UnitOfMeasure` | Raw billed quantity/unit on meter rows |
+| `BilledOperationCount` | Quantity normalized using a verified operation unit; null for other/unknown units |
+| `RequestMinusBilledCount` | Observed requests minus normalized billed operations, only when comparable |
+| `ActualCost`, `Currency` | Reported actual cost; never combine currencies without conversion |
+| `MeterId`, `MeterName`, `MeterSubCategory`, `ProductName`, `ChargeType` | Billing identity/context on meter rows |
+| `CostSource` | `CostDetailsApi` or `Csv` |
+| `ComparisonStatus` | Comparison/mapping outcome |
+
+Comparison statuses are `CountsMatch`, `CountsDiffer`, `MetricsIncomplete`,
+`NoMatchingBillingMeter`, or `UnverifiedUnit`. A missing meter means null billed
+count/cost, **not** a confirmed zero. `CountsMatch` means numerical equality for
+the mapped meters, not proof of complete billability modeling.
+Meter statuses are `VerifiedOperationUnit`, `UnverifiedUnit`,
+`UnmappedOperationMeter`, `NotOperationMeter`, or `NonUsageCharge`.
+Unknown operation meters stay visible and are not guessed into categories.
+Refunds/other charge types remain meter rows and are not subtracted from Usage
+operation comparisons.
+
+Query-acceleration meters, if returned, remain raw `CostMeter` rows with their
+reported quantities/units/costs. This version does not normalize those meters
+to bytes or compare them with Monitor's unavailable byte fields.
+
+Cost failures write to the error stream and emit `CostError` rows with
+`ComparisonStatus: Failed` and the failure message. They do not discard valid
+Monitor records. A failed subscription/month emits no partial cost comparisons.
+With `-ErrorAction Stop`, the invocation terminates; earlier Monitor output may
+already have reached a pipeline consumer. Check both metric completeness and
+cost statuses before using the results.
+
+**Never sum `CostMeter` and `CostComparison` costs together**: they overlap.
+For total reported cost across selected accounts, use only `CostMeter` rows,
+grouped by currency and charge type. Some meters are unrelated to Blob requests,
+and unassigned/non-account subscription charges are outside this report.
+Blank resource IDs are excluded with a warning; a missing resource-ID column
+is a schema error.
+PowerShell's default table display can round tiny decimal costs to `0.00`;
+CSV/JSON retain the actual values. For display without that rounding, select
+a calculated column such as
+`@{Name='Cost'; Expression={$_.ActualCost.ToString('G29')}}`
+after filtering to `CostMeter` rows.
 
 ## Operation mappings and billing limitations
 
@@ -367,6 +491,16 @@ Before relying on a production run, compare one completed window's
 `AccountTotal` and detailed splits with Azure Monitor Metrics Explorer on the
 same Blob service, aggregation, window and dimensions.
 
+Cost tests use the same public function, mock Azure/report-download/delay
+boundaries, and exercise CSV input, units, catalog exclusions, currencies,
+refunds, missing counts/meters, scope/date filtering, output exports,
+asynchronous multi-part downloads and bounded polling/failure handling:
+
+```powershell
+$test = Invoke-Pester -Script .\PowerShell\tests -PassThru
+if ($test.FailedCount) { throw "$($test.FailedCount) tests failed." }
+```
+
 ## Live validation
 
 Run once against six Standard_LRS StorageV2 accounts (one subscription, 7 UTC days, 24h chunks): all accounts returned without errors and every chunk reconciled split vs. unsplit totals. Idle accounts returned explicit zeros. Counts were not compared with Portal Metrics Explorer.
@@ -376,3 +510,14 @@ seven-day window. Each monthly total/category matched the sum of the saved
 daily records, and the October period was correctly marked as partial.
 Monthly CSV/JSON artifacts were saved separately from the original daily CSV.
 This was not a full-month live run or a Cost Management reconciliation.
+
+The subsequent full September 2026 live check on four `mnsigs` accounts used
+the new Cost Details API mode and returned ten account meters. Observed/billed
+counts matched for `samnsigscontact` Reads (260), Writes (2), List/Create (2)
+and `samnsigs001` Reads (82). `samnsigs001` AllOtherOperations had 92 observed
+requests versus 2 billed operations; its metric details showed error responses.
+Its 495 authorization-error list requests had no matching billed list meter.
+Capacity, bandwidth and Defender charges were retained separately. No
+query-acceleration meters were present.
+The reported selected-account costs totaled `0.003529548 USD`, including the
+non-operation meters. CSV-input comparisons matched the live API results.

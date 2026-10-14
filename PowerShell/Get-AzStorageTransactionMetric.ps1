@@ -26,6 +26,12 @@ function Get-AzStorageTransactionMetric {
     .PARAMETER IncludeDetail
     Includes each API/response/tier/authentication/geo/transaction-type series.
     Filter RecordType before summing: Detail, Summary and AccountTotal overlap.
+    .PARAMETER IncludeCostComparison
+    Adds actual billed usage comparisons for completed UTC months. Uses the
+    Cost Details report API; unsupported billing offers can supply CSV instead.
+    .PARAMETER CostDetailsCsv
+    Complete actual-cost usage-details CSV files, including all report partitions.
+    Adds cost comparisons without making Cost Management requests.
     .EXAMPLE
     . .\PowerShell\Get-AzStorageTransactionMetric.ps1
     $ids | Get-AzStorageTransactionMetric -StartTime '2026-09-01T00:00:00Z' -EndTime '2026-10-01T00:00:00Z' -IncludeDetail
@@ -54,7 +60,12 @@ function Get-AzStorageTransactionMetric {
         [ValidateSet('Month', 'Chunk')]
         [string]$SummaryPeriod = 'Month',
 
-        [switch]$IncludeDetail
+        [switch]$IncludeDetail,
+
+        [switch]$IncludeCostComparison,
+
+        [ValidateNotNullOrEmpty()]
+        [string[]]$CostDetailsCsv
     )
 
     begin {
@@ -69,6 +80,15 @@ function Get-AzStorageTransactionMetric {
         if ($start -lt [datetimeoffset]::UtcNow.AddDays(-93)) {
             throw 'StartTime is outside the 93-day Azure Monitor platform metric retention window.'
         }
+        $compareCosts = $IncludeCostComparison -or [bool]$CostDetailsCsv
+        if ($compareCosts) {
+            if ($SummaryPeriod -ne 'Month' -or $start.Day -ne 1 -or $end.Day -ne 1 -or
+                $start.TimeOfDay -ne [timespan]::Zero -or $end.TimeOfDay -ne [timespan]::Zero) {
+                throw 'Cost comparison requires completed UTC calendar months and SummaryPeriod Month.'
+            }
+            . "$PSScriptRoot\StorageTransactionCostComparison.ps1"
+        }
+        $comparisonRecords = [System.Collections.Generic.List[object]]::new()
         $ids = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         $contexts = @(Get-AzContext -ListAvailable -ErrorAction Stop)
         $categories = @('Reads', 'Writes', 'IterativeReads', 'IterativeWrites',
@@ -208,6 +228,19 @@ function Get-AzStorageTransactionMetric {
                 QueryAccelerationDataReturnedBytes = $null
                 QueryAccelerationStatus = 'UnavailableInPlatformMetrics'
                 Message = $Message
+                BilledQuantity = $null
+                UnitOfMeasure = $null
+                BilledOperationCount = $null
+                RequestMinusBilledCount = $null
+                ActualCost = $null
+                Currency = $null
+                MeterId = $null
+                MeterName = $null
+                MeterSubCategory = $null
+                ProductName = $null
+                ChargeType = $null
+                CostSource = $null
+                ComparisonStatus = $null
             }
         }
 
@@ -404,6 +437,9 @@ function Get-AzStorageTransactionMetric {
                 }
                 if ($SummaryPeriod -eq 'Month') {
                     $monthlyRecords = @(ConvertTo-MonthlyRecord -Records $records.ToArray())
+                    if ($compareCosts) {
+                        foreach ($record in $monthlyRecords) { $comparisonRecords.Add($record) }
+                    }
                     $monthlyRecords
                 } else {
                     $records
@@ -414,6 +450,10 @@ function Get-AzStorageTransactionMetric {
                 Write-Error -Message $message -ErrorId 'StorageTransactionCollectionFailed' -Category InvalidResult -TargetObject $id
                 New-TransactionRecord -Type 'Error' -Status 'Failed' -Completeness 'Failed' -Message $message
             }
+        }
+        if ($compareCosts -and $comparisonRecords.Count) {
+            Get-StorageTransactionCostComparison -Records $comparisonRecords.ToArray() `
+                -Contexts $contexts -CsvPaths $CostDetailsCsv
         }
     }
 }
