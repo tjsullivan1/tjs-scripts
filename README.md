@@ -3,7 +3,9 @@ Instead of using gists, a repo for my scripts.
 
 ## Storage metrics
 
-[PowerShell storage transaction collector](PowerShell/StorageTransactionMetrics.md):
+[Quickstart: one account, costs, and multiple accounts](PowerShell/StorageMetrics/Quickstart.md).
+
+[PowerShell storage transaction collector](PowerShell/StorageMetrics/StorageTransactionMetrics.md):
 collect observed Blob/ADLS requests across accounts and subscriptions, grouped by
 documented operation categories, with pipeline-friendly CSV/JSON output.
 Monthly totals support opt-in comparisons with actual billed usage from the
