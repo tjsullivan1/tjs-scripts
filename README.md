@@ -13,3 +13,5 @@ coverage. Billing evidence can retain daily rows, rate/benefit context and verif
 meter quantities; the collector does not calculate redundancy scenario prices.
 An opt-in workload baseline separates observed and billed quantities and compares
 monthly tiered capacity with billing, exposing unresolved mappings and differences.
+For today's footprint, `-IncludeCurrentCapacity` adds the latest reconciled
+capacity by tier with sample timestamps/age, independently of historical coverage.

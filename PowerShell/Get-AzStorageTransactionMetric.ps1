@@ -30,6 +30,10 @@ function Get-AzStorageTransactionMetric {
     Adds hourly BlobCapacity samples rolled up by tier/blob type and IndexCapacity
     for HNS accounts. Requires whole-hour boundaries. Used capacity is not exact
     billable capacity; missing hours remain visible and are never filled as zero.
+    .PARAMETER IncludeCurrentCapacity
+    Adds the latest reconciled Blob capacity sample from the last 24 complete
+    hours, plus HNS index capacity when available. This is a current snapshot,
+    independent of StartTime/EndTime, not a monthly billable-capacity average.
     .PARAMETER IncludeCostComparison
     Adds actual billed usage comparisons for completed UTC months. Uses the
     Cost Details report API; unsupported billing offers can supply CSV instead.
@@ -76,6 +80,8 @@ function Get-AzStorageTransactionMetric {
 
         [switch]$IncludeCapacity,
 
+        [switch]$IncludeCurrentCapacity,
+
         [switch]$IncludeCostComparison,
 
         [switch]$IncludeCostDetail,
@@ -100,7 +106,7 @@ function Get-AzStorageTransactionMetric {
         if ($collectCapacity -and ($start.Ticks % [timespan]::TicksPerHour -or $end.Ticks % [timespan]::TicksPerHour)) {
             throw 'IncludeCapacity requires StartTime and EndTime aligned to whole hours.'
         }
-        if ($collectCapacity) { . "$PSScriptRoot\StorageCapacityMetrics.ps1" }
+        if ($collectCapacity -or $IncludeCurrentCapacity) { . "$PSScriptRoot\StorageCapacityMetrics.ps1" }
         if ($start -lt [datetimeoffset]::UtcNow.AddDays(-93)) {
             throw 'StartTime is outside the 93-day Azure Monitor platform metric retention window.'
         }
@@ -332,6 +338,10 @@ function Get-AzStorageTransactionMetric {
                 CapacityDifferenceGiBMonth = $null
                 CapacityDifferencePercent = $null
                 CapacityTierBasis = $null
+                CurrentUsedBytes = $null
+                CurrentUsedGiB = $null
+                CapacitySampleTimeUtc = $null
+                CapacitySampleAgeHours = $null
             }
         }
 
@@ -581,6 +591,34 @@ function Get-AzStorageTransactionMetric {
                     $failure.CompletenessStatus = 'Failed'
                     $failure.Message = $message
                     if ($IncludeWorkloadBaseline) { $baselineRecords.Add($failure) }
+                    $failure
+                }
+            }
+            if ($IncludeCurrentCapacity -and $collected) {
+                $template = $records[0]
+                $snapshotEnd = [datetimeoffset]::UtcNow
+                $snapshotEnd = $snapshotEnd.AddTicks(-($snapshotEnd.Ticks % [timespan]::TicksPerHour))
+                $snapshotStart = $snapshotEnd.AddHours(-24)
+                try {
+                    Get-StorageCapacityRecord -Template $template -Context $context `
+                        -StartTime $snapshotStart -EndTime $snapshotEnd -ChunkHours 24 `
+                        -SummaryPeriod Chunk -CurrentSnapshot
+                } catch {
+                    $message = "Failed collecting current capacity for ${id}: $($_.Exception.Message)"
+                    Write-Error -Message $message -ErrorId 'StorageCurrentCapacityCollectionFailed' -Category InvalidResult -TargetObject $id
+                    $failure = $template.PSObject.Copy()
+                    $failure.RecordType = 'CurrentCapacityError'
+                    $failure.StartTime = $snapshotStart.ToString('o')
+                    $failure.EndTime = $snapshotEnd.ToString('o')
+                    $failure.Month = $null
+                    $failure.SummaryPeriod = 'Snapshot'
+                    $failure.IsPartialMonth = $null
+                    $failure.RequestCount = $null
+                    $failure.CountStatus = $null
+                    $failure.QuantityBasis = 'AzureMonitorLatestUsedCapacity'
+                    $failure.CapacityStatus = 'Failed'
+                    $failure.CompletenessStatus = 'Failed'
+                    $failure.Message = $message
                     $failure
                 }
             }

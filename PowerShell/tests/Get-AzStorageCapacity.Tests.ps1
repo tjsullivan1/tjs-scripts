@@ -21,6 +21,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $script:seriesCap = $false
         $script:outOfWindow = $false
         $script:missingDimension = $false
+        $script:currentValues = $null
         Mock Get-AzContext {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub; Name = 'Example subscription' } }
         }
@@ -47,7 +48,9 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $data = @(
                 for ($time = $first; $time -lt $last; $time = $time.AddHours(1)) {
                     $index = [int]($time - $script:start).TotalHours
-                    $value = $script:values[$index]
+                    $value = if ($null -ne $script:currentValues) {
+                        $script:currentValues[[int]($time - $first).TotalHours]
+                    } else { $script:values[$index] }
                     if ($metric -eq 'IndexCapacity' -and $null -ne $value) { $value = ($index + 1) * 10 }
                     if ($script:coolValues -and $Path -notmatch '%24filter=' -and $metric -eq 'BlobCapacity') {
                         $value += $script:coolValues[$index]
@@ -88,6 +91,77 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             } | ConvertTo-Json -Depth 12) }
         }
     }
+
+        It 'reports the latest current capacity sample rather than a historical average' {
+            $script:hns = $false
+            $script:currentValues = @(@($null) * 21) + @(100, 300, 500)
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop)
+            $capacity = $rows | Where-Object RecordType -eq 'CurrentCapacity'
+            $capacity.CurrentUsedBytes | Should Be 500
+            $capacity.CapacityStatus | Should Be 'LatestReconciledSample'
+            $capacity.QuantityBasis | Should Be 'AzureMonitorLatestUsedCapacity'
+            ($null -eq $capacity.AverageUsedBytes) | Should Be $true
+            $capacity.Month | Should BeNullOrEmpty
+            ([datetimeoffset]$capacity.CapacitySampleTimeUtc -gt $script:end) | Should Be $true
+            ($capacity.CapacitySampleAgeHours -ge 1 -and $capacity.CapacitySampleAgeHours -lt 2) | Should Be $true
+            ($rows | Where-Object RecordType -eq 'AccountTotal').StartTime | Should Be $script:start.ToString('o')
+            @($rows | Where-Object RecordType -eq 'Capacity').Count | Should Be 0
+        }
+
+        It 'uses the latest available reconciled sample when the newest hour is missing' {
+            $script:hns = $false
+            $script:currentValues = @(@($null) * 22) + @(0, $null)
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop)
+            $capacity = $rows | Where-Object RecordType -eq 'CurrentCapacity'
+            $capacity.CurrentUsedBytes | Should Be 0
+            $capacity.CurrentUsedGiB | Should Be 0
+            ($capacity.CapacitySampleAgeHours -ge 2 -and $capacity.CapacitySampleAgeHours -lt 3) | Should Be $true
+            $total = $rows | Where-Object RecordType -eq 'CurrentCapacityAccountTotal'
+            $total.CapacitySampleTimeUtc | Should Be $capacity.CapacitySampleTimeUtc
+            $total.CurrentUsedBytes | Should Be 0
+        }
+
+        It 'keeps an empty current snapshot unknown and preserves monthly requests' {
+            $script:emptyCapacity = $true
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -WarningAction SilentlyContinue -ErrorAction Stop)
+            $capacity = $rows | Where-Object RecordType -eq 'CurrentCapacity'
+            $capacity.CapacityStatus | Should Be 'Unavailable'
+            ($null -eq $capacity.CurrentUsedBytes) | Should Be $true
+            $capacity.CapacitySampleTimeUtc | Should BeNullOrEmpty
+            @($rows | Where-Object RecordType -eq 'AccountTotal').Count | Should Be 1
+        }
+
+        It 'surfaces current capacity failures without marking observed requests failed' {
+            $script:capacityFailure = $true
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction SilentlyContinue)
+            $failure = $rows | Where-Object RecordType -eq 'CurrentCapacityError'
+            $failure.CapacityStatus | Should Be 'Failed'
+            $failure.Message | Should Match 'Capacity denied'
+            @($rows | Where-Object RecordType -eq 'CurrentCapacity').Count | Should Be 0
+            ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should Be 'Reconciled'
+        }
+
+        It 'rejects unreconciled snapshot data and supports terminating errors' {
+            $script:currentValues = @(100) * 24
+            $script:mismatch = $true
+            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop } | Should Throw 'does not match unsplit'
+        }
+
+        It 'reports HNS index separately and retains the flat export schema in strict mode' {
+            $script:currentValues = @(100) * 24
+            Set-StrictMode -Version Latest
+            try {
+                $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop)
+                $index = $rows | Where-Object RecordType -eq 'CurrentIndexCapacity'
+                $index.CapacityStatus | Should Be 'LatestSample'
+                $index.MetricName | Should Be 'IndexCapacity'
+                $index.CurrentUsedBytes | Should BeGreaterThan 0
+                $rows | Export-Csv "$TestDrive\current.csv" -NoTypeInformation
+                $export = Import-Csv "$TestDrive\current.csv" | Where-Object RecordType -eq 'CurrentCapacity'
+                $export.CurrentUsedBytes | Should Be '100'
+                ($rows | Where-Object RecordType -eq 'AccountTotal').CurrentUsedBytes | Should BeNullOrEmpty
+            } finally { Set-StrictMode -Off }
+        }
 
         It 'does not turn missing hours into zero or a complete monthly average' {
             $script:values = @(100, $null, 500)

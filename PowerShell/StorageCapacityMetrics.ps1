@@ -16,7 +16,8 @@ function Get-StorageCapacityRecord {
         [Parameter(Mandatory)][datetimeoffset]$StartTime,
         [Parameter(Mandatory)][datetimeoffset]$EndTime,
         [int]$ChunkHours,
-        [string]$SummaryPeriod
+        [string]$SummaryPeriod,
+        [switch]$CurrentSnapshot
     )
 
     function Get-CapacitySeries {
@@ -146,6 +147,59 @@ function Get-StorageCapacityRecord {
         }
         if (-not @($groups.Values | Where-Object Type -eq 'Capacity').Count) {
             $groups['UnavailableSplit'] = @{ Type = 'Capacity'; Metric = 'BlobCapacity'; Tier = $null; BlobType = $null; Points = @{} }
+        }
+        if ($CurrentSnapshot) {
+            $blobGroups = @($groups.Values | Where-Object Type -in @('Capacity', 'CapacityAccountTotal'))
+            $sampleTime = $null
+            for ($time = $periodEnd.AddHours(-1); $time -ge $periodStart; $time = $time.AddHours(-1)) {
+                $key = $time.ToString('o')
+                if (-not @($blobGroups | Where-Object { $null -eq $_.Points[$key] }).Count) {
+                    $sampleTime = $time
+                    break
+                }
+            }
+            foreach ($group in ($groups.Values | Sort-Object Type, Tier, BlobType)) {
+                $selectedTime = $sampleTime
+                if ($group.Type -eq 'IndexCapacity') {
+                    $selectedTime = $null
+                    for ($time = $periodEnd.AddHours(-1); $time -ge $periodStart; $time = $time.AddHours(-1)) {
+                        if ($null -ne $group.Points[$time.ToString('o')]) { $selectedTime = $time; break }
+                    }
+                }
+                $record = $Template.PSObject.Copy()
+                $record.RecordType = switch ($group.Type) {
+                    'Capacity' { 'CurrentCapacity' }
+                    'CapacityAccountTotal' { 'CurrentCapacityAccountTotal' }
+                    'IndexCapacity' { 'CurrentIndexCapacity' }
+                }
+                $record.RequestCount = $null
+                $record.CountStatus = $null
+                $record.MetricName = $group.Metric
+                $record.Tier = $group.Tier
+                $record.BlobType = $group.BlobType
+                $record.StartTime = $periodStart.ToString('o')
+                $record.EndTime = $periodEnd.ToString('o')
+                $record.Month = $null
+                $record.SummaryPeriod = 'Snapshot'
+                $record.IsPartialMonth = $null
+                $record.QuantityBasis = 'AzureMonitorLatestUsedCapacity'
+                $record.CompletenessStatus = 'SnapshotNotMonthlyCoverage'
+                $record.CapacityStatus = 'Unavailable'
+                $record.CapacityReconciliationStatus = if ($group.Type -eq 'IndexCapacity') { 'NotApplicable' } else { 'MissingSamples' }
+                if ($null -ne $selectedTime) {
+                    $record.CapacitySampleTimeUtc = $selectedTime.ToString('o')
+                    $record.CapacitySampleAgeHours = ([datetimeoffset]::UtcNow - $selectedTime).TotalHours
+                    $record.CurrentUsedBytes = $group.Points[$selectedTime.ToString('o')]
+                    $record.CurrentUsedGiB = $record.CurrentUsedBytes / [decimal]1073741824
+                    $record.CapacityStatus = if ($group.Type -eq 'IndexCapacity') { 'LatestSample' } else { 'LatestReconciledSample' }
+                    if ($group.Type -ne 'IndexCapacity') { $record.CapacityReconciliationStatus = 'ReconciledSample' }
+                } else {
+                    $record.Message = 'No usable capacity sample was found in the last 24 complete hours; capacity is unknown, not zero.'
+                    Write-Warning "$($Template.ResourceId) $($group.Metric): $($record.Message)"
+                }
+                $output.Add($record)
+            }
+            continue
         }
         foreach ($group in ($groups.Values | Sort-Object Type, Tier, BlobType)) {
             $expected = [int]($periodEnd - $periodStart).TotalHours

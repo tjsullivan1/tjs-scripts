@@ -91,7 +91,7 @@ historical dates.
 
 | Field | Meaning |
 | --- | --- |
-| `RecordType` | `Summary`, `Detail`, `AccountTotal`, `Error`; opt-in `Capacity`, `CapacityAccountTotal`, `IndexCapacity`, `CapacityError`, `CostComparison`, `CostMeter`, `CostDetail`, `CostError`, `Workload`, `BilledWorkload`, `CapacityComparison` |
+| `RecordType` | `Summary`, `Detail`, `AccountTotal`, `Error`; opt-in `Capacity`, `CapacityAccountTotal`, `IndexCapacity`, `CapacityError`, `CurrentCapacity`, `CurrentCapacityAccountTotal`, `CurrentIndexCapacity`, `CurrentCapacityError`, `CostComparison`, `CostMeter`, `CostDetail`, `CostError`, `Workload`, `BilledWorkload`, `CapacityComparison` |
 | `SubscriptionId`, `SubscriptionName`, `ResourceGroupName`, `StorageAccountName`, `ResourceId` | Explicit account identity; subscription name from the saved context, null if unavailable |
 | `MetricResourceId` | Blob service queried |
 | `Location`, `AccountKind`, `SkuName`, `IsHnsEnabled`, `AccountDefaultAccessTier` | Current account configuration; SKU includes redundancy |
@@ -149,6 +149,64 @@ CSV represents null as an empty cell; JSON preserves `null` explicitly.
 To see just the total transactions per account/month, filter
 `$results | Where-Object RecordType -eq 'AccountTotal'`. Do not add category
 summaries to those totals.
+
+## Current footprint and recent workload
+
+Use `-IncludeCurrentCapacity` when the goal is today's footprint rather than
+exact historical bill reconciliation. It uses the same authentication and RBAC,
+requires no billing source, and does not enable historical capacity collection.
+Current account attributes accompany each row.
+
+```powershell
+$end = [datetimeoffset]::UtcNow
+$end = $end.AddTicks(-($end.Ticks % [timespan]::TicksPerHour))
+$results = @($ids | Get-AzStorageTransactionMetric `
+    -StartTime $end.AddDays(-30) -EndTime $end `
+    -IncludeDetail -IncludeCurrentCapacity -ErrorAction Stop)
+$results | Where-Object RecordType -eq 'CurrentCapacity' |
+    Select-Object StorageAccountName, Location, AccountKind, SkuName,
+        IsHnsEnabled, AccountDefaultAccessTier, Tier, BlobType,
+        CurrentUsedBytes, CurrentUsedGiB, CapacitySampleTimeUtc,
+        CapacitySampleAgeHours, CapacityStatus
+$results | Export-Csv .\storage-current-workload.csv -NoTypeInformation
+ConvertTo-Json -InputObject $results -Depth 5 |
+    Set-Content .\storage-current-workload.json -Encoding utf8
+```
+
+The snapshot queries the last 24 complete UTC hours, independently of the
+transaction `StartTime`/`EndTime`. It selects the latest common numeric hourly
+sample across all returned Blob tier/type series and the unsplit total. Split
+values must reconcile with the total. It does not average the last day's capacity,
+fill missing samples, or use incomplete historical averages. If the newest
+sample is missing, it selects an earlier reconciled sample and exposes its age.
+Azure recomputes capacity periodically; the sample is not a real-time blob listing.
+
+| Snapshot field | Meaning |
+| --- | --- |
+| `RecordType` | `CurrentCapacity`: tier/type splits; `CurrentCapacityAccountTotal`: overlapping Blob total; `CurrentIndexCapacity`: separate HNS index; `CurrentCapacityError`: collection failed |
+| `CurrentUsedBytes`, `CurrentUsedGiB` | Latest usable sample in bytes and binary GiB; null when unavailable |
+| `CapacitySampleTimeUtc`, `CapacitySampleAgeHours` | Selected hourly sample timestamp and age at collection; index can have a different timestamp |
+| `CapacityStatus` | `LatestReconciledSample` for Blob, `LatestSample` for index, `Unavailable` when no usable sample exists, or `Failed` |
+| `SummaryPeriod`, `Month` | `Snapshot` and null; these rows do not represent a billing month |
+| `StartTime`, `EndTime` | Snapshot search window, not transaction period |
+| `QuantityBasis`, `CompletenessStatus` | `AzureMonitorLatestUsedCapacity` and `SnapshotNotMonthlyCoverage` |
+
+Filter snapshot splits **or** the snapshot total; do not sum both, or combine
+snapshots with historical capacity rows. Snapshot `AverageUsedBytes` remains
+null. Raw tier labels remain unchanged, including GPv1 `Untiered`.
+
+This supports a practical current-footprint model: explicitly assume current
+capacity remains constant for the modeled month, and use measured recent
+transaction volumes with their real coverage dates. A trailing 30-day range can
+span two calendar-month rows; it is not automatically a calendar-month total.
+Any full-month run-rate extrapolation belongs in the pricing assumptions, not
+the collector. A small billing variance can be accepted as a modeling tolerance
+without changing measured quantities or claiming exact invoice validation.
+The collector does not assign an arbitrary discrepancy threshold.
+
+Retrieval, replication transfer, early deletion and query acceleration still
+require billing or additional telemetry where applicable; unavailable is not
+zero. This mode reports current workload inputs, not priced redundancy scenarios.
 
 ## Historical capacity for pricing preparation
 
@@ -802,3 +860,11 @@ historical source or a different fully covered baseline month. A current blob
 listing would not reconstruct September usage. The GPv1 accounts also require
 an explicit account-type/pricing assumption when evaluating modern redundancy
 options; a redundancy-only rate change is not sufficient.
+
+A subsequent current-footprint run on October 14 returned reconciled Blob
+capacity samples for all four accounts at 20:00 UTC (about 1.3 hours old):
+48,174,138 bytes for `rgmnsigseventsaff2`, 0 bytes for `sakioocs`, 9,736,770
+bytes for `samnsigs001`, and 282,574 bytes for `samnsigscontact`. The accompanying
+seven-day October transaction window returned 67 observed requests for
+`samnsigs001` and zero for the other three accounts. These are current samples
+and recent observed counts, not extrapolated monthly costs.
