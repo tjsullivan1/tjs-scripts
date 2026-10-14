@@ -91,7 +91,7 @@ historical dates.
 
 | Field | Meaning |
 | --- | --- |
-| `RecordType` | `Summary`, `Detail`, `AccountTotal`, `Error`; opt-in `Capacity`, `CapacityAccountTotal`, `IndexCapacity`, `CapacityError`, `CostComparison`, `CostMeter`, `CostDetail`, `CostError` |
+| `RecordType` | `Summary`, `Detail`, `AccountTotal`, `Error`; opt-in `Capacity`, `CapacityAccountTotal`, `IndexCapacity`, `CapacityError`, `CostComparison`, `CostMeter`, `CostDetail`, `CostError`, `Workload`, `BilledWorkload`, `CapacityComparison` |
 | `SubscriptionId`, `SubscriptionName`, `ResourceGroupName`, `StorageAccountName`, `ResourceId` | Explicit account identity; subscription name from the saved context, null if unavailable |
 | `MetricResourceId` | Blob service queried |
 | `Location`, `AccountKind`, `SkuName`, `IsHnsEnabled`, `AccountDefaultAccessTier` | Current account configuration; SKU includes redundancy |
@@ -217,6 +217,98 @@ Convert Blob capacity bytes to GiB using 1,073,741,824 bytes per GiB, and use
 the actual calendar-month duration for proration. Do not treat available-hour
 averages as a complete month's capacity, or use account default tier as a
 substitute for observed tier distribution.
+
+## Normalized monthly workload baseline
+
+Use `-IncludeWorkloadBaseline` with an explicit billing source
+(`-IncludeCostComparison` or `-CostDetailsCsv`) to append normalized quantities
+and capacity comparisons. It automatically includes transaction Detail and
+capacity collection, so pricing dimensions cannot be lost by forgetting those
+switches. It requires completed UTC calendar months with `SummaryPeriod Month`.
+Keep `StorageWorkloadBaseline.ps1` beside the main script.
+
+```powershell
+$results = @($ids | Get-AzStorageTransactionMetric `
+    -StartTime $start -EndTime $end -IncludeWorkloadBaseline `
+    -CostDetailsCsv @('.\cost-part1.csv', '.\cost-part2.csv') `
+    -IncludeCostDetail -ErrorAction Stop)
+
+$results | Where-Object RecordType -eq 'Workload' |
+    Select-Object StorageAccountName, Month, QuantityKind, Category,
+        ApiName, ResponseType, Tier, BlobType, GeoType,
+        Quantity, QuantityUnit, QuantitySource, QuantityStatus |
+    Export-Csv .\storage-measured-workload.csv -NoTypeInformation
+$results | Where-Object RecordType -eq 'BilledWorkload' |
+    Export-Csv .\storage-billed-workload.csv -NoTypeInformation
+$results | Where-Object RecordType -eq 'CapacityComparison' |
+    Select-Object StorageAccountName, Month, QuantityKind, Tier,
+        ObservedCapacityGiBMonth, BilledCapacityGiBMonth,
+        CapacityDifferenceGiBMonth, CapacityDifferencePercent,
+        CapacityStatus, BillingCoverageStatus, ComparisonStatus
+```
+
+No additional Azure API or permissions are needed beyond the underlying
+transaction, capacity and billing modes. The baseline does not fetch prices,
+multiply a bill by redundancy factors, or convert an observed request into a
+billable operation. It retains current resource snapshot metadata but cannot
+establish historical configuration or the Blob/DFS endpoint pricing schedule.
+
+| Baseline field | Meaning |
+| --- | --- |
+| `RecordType` | `Workload`: measured quantities; `BilledWorkload`: reported billing quantities; `CapacityComparison`: quantity diagnostics, not calculated costs |
+| `SourceRecordType` | Original `Detail`, `Capacity`, `IndexCapacity` or `CostMeter` behind a normalized row |
+| `QuantityKind` | Measured `ObservedRequests`, `UsedCapacity`, `HnsIndexCapacity`; billed rows retain meter kind or `UnclassifiedMeter` |
+| `Quantity`, `QuantityUnit` | Available normalized quantity and unit; null quantity when missing, unverified, non-Usage, or negative adjustments need review |
+| `QuantitySource`, `QuantityBasis` | Separates Azure Monitor observations from CSV/API billing evidence; billing is not independent workload telemetry |
+| `QuantityStatus` | Measured `ObservedRequestsNotBillable`, `DocumentedFreeRequests`, `UnmappedRequests`, `CompleteSampleEstimate`, or `MissingData`; billed `BillingDerived`, `Unclassified`, `UnverifiedUnit`, `UnmappedOperationMeter`, `NonUsageCharge`, or `BillingAdjustmentsPresent`; comparison `ComparisonOnly` |
+| `ObservedCapacityGiBMonth`, `BilledCapacityGiBMonth` | Comparable measured estimate and reported capacity usage; neither is synthesized from cost |
+| `CapacityDifferenceGiBMonth`, `CapacityDifferencePercent` | Observed minus billed; percentage relative to billed quantity; null for blocked comparisons or a zero percentage denominator |
+| `HasNegativeUsageQuantity` | Whether a billing aggregate contains any negative Usage row, even when its net quantity is positive |
+
+For a full month, normalized sampled capacity is the time-weighted monthly
+average in bytes divided by **1,073,741,824**, giving GiBMonth for that month.
+No fixed 30-day month, decimal-GB conversion, physical-replica multiplier or
+partial-month extrapolation is used. HNS index space is a separate quantity.
+
+Request rows retain each monthly API/category/response/tier/geo/authentication/
+transaction-type combination. Failed requests remain visible; their presence
+does not establish billability. Unknown and documented free operations remain
+separate. A missing month count yields null normalized requests, not a partial
+sum presented as complete.
+
+Only original Detail, Capacity, IndexCapacity and CostMeter records generate
+normalized rows. AccountTotal/Summary, CapacityAccountTotal, CostDetail and
+CostComparison are not included again. **Original and normalized rows overlap.**
+Filter a record type, quantity kind/unit and source before aggregating; do not
+add `Workload` to `BilledWorkload`, sum different units, or sum both original
+and normalized costs.
+
+Capacity diagnostics group by account, month and observed/billed access tier.
+They sum comparable BlockBlob/AppendBlob splits within the tier; PageBlob or
+unknown blob types are blocked because the recognized billing meters describe
+block-blob capacity. HNS index is compared separately, without inventing its
+metric tier. Rates and benefit coverage do not change quantities; disjoint
+meter/rate/benefit rows can contribute to the same quantity comparison.
+
+| `CapacityComparison.ComparisonStatus` | Meaning |
+| --- | --- |
+| `QuantitiesMatch` / `QuantitiesDiffer` | Exact numeric equality/difference of available quantities; neither validates prices or final billing coverage |
+| `NoMatchingBillingMeter` | Complete sampled capacity exists, but no matching Usage capacity meter was returned; billed quantity remains null |
+| `MetricsIncomplete` | Complete sampled capacity is unavailable; billed quantities can remain available |
+| `MetricsFailed` / `BillingUnavailable` | An underlying capacity query or billing request/import failed; inspect original error records |
+| `TierUnresolved` | Missing tier or a label such as `Untiered`; account default tier is never substituted, and no observed comparison quantity is assigned |
+| `UnsupportedBlobType` | The metric contains a blob type outside the recognized block-blob meter scope |
+| `UnverifiedUnit` | At least one matching billing meter lacks a verified GiBMonth conversion; billed comparison quantity remains null |
+| `AmbiguousBillingContext` | Different currency, meter-region or redundancy contexts would be combined; billed comparison quantity remains null |
+| `BillingAdjustmentsPresent` | Negative Usage corrections require review; the raw/net billed evidence is retained but not exposed as usable baseline quantity |
+
+`CapacityStatus` records sample completeness separately. Comparison rows use
+`CompletenessStatus = NotBillingValidation`: Monitor reconciliation is not
+inherited as a claim about billing. An unresolved tier or failed source can
+coexist with incomplete samples; inspect the original rows for all underlying
+issues. Refund/Purchase charges remain billing evidence but are excluded from
+usage quantity comparisons. Missing billing meters never become confirmed zeros.
+No percentage threshold is used to declare a baseline validated.
 
 ## Cross-checking Cost Management
 
@@ -373,6 +465,7 @@ Additional flat fields are present (null on ordinary metric rows):
 | `BillingQuantityKind`, `BillingTier`, `BillingRedundancy` | Recognized meter semantics and leading catalog labels; unknowns remain null |
 | `NormalizedBilledQuantity`, `NormalizedBilledUnit`, `BillingMappingStatus` | Verified unit conversion or `UnverifiedUnit`/`Unclassified`; raw quantity/unit always retained |
 | `BillingCoverageStatus` | `CsvCoverageUnverified` or `ReportPartitionsRead`; neither guarantees final invoice completeness |
+| `HasNegativeUsageQuantity` | True if any constituent Usage row has a negative quantity; preserved through monthly meter aggregation |
 
 Comparison statuses are `CountsMatch`, `CountsDiffer`, `MetricsIncomplete`,
 `NoMatchingBillingMeter`, or `UnverifiedUnit`. A missing meter means null billed
@@ -618,6 +711,10 @@ month boundaries, reconciliation, duplicate timestamps/series, failures,
 multiple accounts, strict mode and CSV fields. Billing tests also cover daily
 evidence, benefit/rate separation, per-100 units, verified non-operation quantities
 and unknown meters/units. No tests require Azure credentials.
+Workload baseline tests use the public collector to cover binary capacity units,
+HNS index separation, request dimensions and billability, missing/zero quantities,
+unknown tiers/units/meters, billing contexts and corrections, source failures,
+month/account isolation, opt-in behavior and CSV/JSON output.
 
 ## Remaining pricing-model gaps
 
@@ -663,3 +760,14 @@ September cost-details CSV and retained 54 daily evidence rows, classifying
 capacity, operations and network meters while preserving rates and pricing context.
 This checks one single-tier, non-HNS account; it is not validation of every
 capacity configuration or an independently calculated cost baseline.
+
+The subsequent workload-baseline run collected September capacity and transactions
+for all four selected `mnsigs` accounts, using the saved actual-cost CSV.
+For `samnsigs001`, the sampled estimate was 0.0090680737 GiBMonth versus
+0.009360 billed GiBMonth, a -3.1189% quantity difference that remains unexplained.
+`rgmnsigseventsaff2` had complete samples labeled `Untiered` and an unlabeled
+capacity meter; those are deliberately not assigned to Hot. `sakioocs` and
+`samnsigscontact` had incomplete capacity samples. All unresolved conditions
+remain explicit instead of yielding a validated baseline. The normalized billing
+rows preserved the original 0.003529548 USD selected-account cost and retained
+unknown/Defender meters. These are quantity diagnostics, not price calculations.

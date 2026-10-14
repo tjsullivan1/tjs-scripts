@@ -11,3 +11,5 @@ Cost Details API or existing usage-details CSV files.
 Optional historical capacity averages retain tier/blob-type splits and missing-hour
 coverage. Billing evidence can retain daily rows, rate/benefit context and verified
 meter quantities; the collector does not calculate redundancy scenario prices.
+An opt-in workload baseline separates observed and billed quantities and compares
+monthly tiered capacity with billing, exposing unresolved mappings and differences.

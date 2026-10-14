@@ -147,6 +147,7 @@ function Get-StorageTransactionCostComparison {
         $record.Currency = Get-CostField $Row @('BillingCurrency', 'BillingCurrencyCode', 'Currency') -Required
         $record.ChargeType = Get-CostField $Row @('ChargeType') -Required
         $record.BilledQuantity = Get-CostDecimal (Get-CostField $Row @('Quantity', 'UsageQuantity') -Required) 'Quantity'
+        $record.HasNegativeUsageQuantity = $record.ChargeType -eq 'Usage' -and $record.BilledQuantity -lt 0
         $record.ActualCost = Get-CostDecimal (Get-CostField $Row @('CostInBillingCurrency', 'Cost', 'PreTaxCost') -Required) 'ActualCost'
         $record.BillingUsageDate = $UsageDate.ToUniversalTime().ToString('yyyy-MM-dd', [cultureinfo]::InvariantCulture)
         foreach ($field in $contextFields.Keys) {
@@ -340,12 +341,14 @@ function Get-StorageTransactionCostComparison {
                 $record = $group.Group[0].PSObject.Copy()
                 $record.BilledQuantity = [decimal]0
                 $record.ActualCost = [decimal]0
+                $record.HasNegativeUsageQuantity = $false
                 $record.BillingUsageDate = $null
                 $count = [decimal]0
                 $normalized = [decimal]0
                 foreach ($meter in $group.Group) {
                     $record.BilledQuantity += $meter.BilledQuantity
                     $record.ActualCost += $meter.ActualCost
+                    if ($meter.HasNegativeUsageQuantity) { $record.HasNegativeUsageQuantity = $true }
                     if ($null -ne $meter.BilledOperationCount) { $count += $meter.BilledOperationCount }
                     if ($null -ne $meter.NormalizedBilledQuantity) { $normalized += $meter.NormalizedBilledQuantity }
                 }
