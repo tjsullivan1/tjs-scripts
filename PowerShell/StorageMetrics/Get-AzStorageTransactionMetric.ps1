@@ -49,7 +49,7 @@ function Get-AzStorageTransactionMetric {
     Complete actual-cost usage-details CSV files, including all report partitions.
     Adds cost comparisons without making Cost Management requests.
     .EXAMPLE
-    . .\PowerShell\Get-AzStorageTransactionMetric.ps1
+    . .\PowerShell\StorageMetrics\Get-AzStorageTransactionMetric.ps1
     $ids | Get-AzStorageTransactionMetric -StartTime '2026-09-01T00:00:00Z' -EndTime '2026-10-01T00:00:00Z' -IncludeDetail
     .OUTPUTS
     System.Management.Automation.PSCustomObject

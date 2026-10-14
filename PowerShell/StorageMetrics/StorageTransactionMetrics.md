@@ -21,7 +21,7 @@ Install-Module Az.Accounts -Scope CurrentUser
 # Authenticate separately for each subscription/tenant you intend to collect.
 Connect-AzAccount -Tenant '<tenant-id>' -Subscription '<subscription-id>'
 Get-AzContext -ListAvailable
-. .\PowerShell\Get-AzStorageTransactionMetric.ps1
+. .\PowerShell\StorageMetrics\Get-AzStorageTransactionMetric.ps1
 ```
 
 The authenticated identity needs `Microsoft.Storage/storageAccounts/read` on the
@@ -218,7 +218,7 @@ Only public region/product filters are sent; resource identities and quantities
 stay local. No prices are hard-coded into either script.
 
 ```powershell
-. .\PowerShell\Get-AzStorageRedundancyCost.ps1
+. .\PowerShell\StorageMetrics\Get-AzStorageRedundancyCost.ps1
 # $results from IncludeDetail + IncludeCurrentCapacity above.
 $estimate = @(Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10')
 $estimate | Where-Object RecordType -eq 'Scenario' |
@@ -848,7 +848,7 @@ public function without credentials or network access:
 
 ```powershell
 Import-Module Pester -RequiredVersion 3.4.0
-$test = Invoke-Pester -Script .\PowerShell\tests\Get-AzStorageTransactionMetric.Tests.ps1 -PassThru
+$test = Invoke-Pester -Script .\PowerShell\StorageMetrics\tests\Get-AzStorageTransactionMetric.Tests.ps1 -PassThru
 if ($test.FailedCount) { throw "$($test.FailedCount) tests failed." }
 ```
 
@@ -866,7 +866,7 @@ refunds, missing counts/meters, scope/date filtering, output exports,
 asynchronous multi-part downloads and bounded polling/failure handling:
 
 ```powershell
-$test = Invoke-Pester -Script .\PowerShell\tests -PassThru
+$test = Invoke-Pester -Script .\PowerShell\StorageMetrics\tests -PassThru
 if ($test.FailedCount) { throw "$($test.FailedCount) tests failed." }
 ```
 

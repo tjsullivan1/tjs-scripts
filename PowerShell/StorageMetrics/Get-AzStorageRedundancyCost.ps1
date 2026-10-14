@@ -24,7 +24,7 @@ function Get-AzStorageRedundancyCost {
     Explicitly assumes flat namespace only when IsHnsEnabled is null. Does not
     override a known HNS-enabled account. The assumption is recorded on each row.
     .EXAMPLE
-    . .\PowerShell\Get-AzStorageRedundancyCost.ps1
+    . .\PowerShell\StorageMetrics\Get-AzStorageRedundancyCost.ps1
     Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10'
     .OUTPUTS
     System.Management.Automation.PSCustomObject
