@@ -208,6 +208,103 @@ Retrieval, replication transfer, early deletion and query acceleration still
 require billing or additional telemetry where applicable; unavailable is not
 zero. This mode reports current workload inputs, not priced redundancy scenarios.
 
+## Public retail redundancy planning estimates
+
+[`Get-AzStorageRedundancyCost.ps1`](Get-AzStorageRedundancyCost.ps1) is a separate
+pricing command. It consumes the collector's **typed objects or JSON**, not CSV
+strings, and fetches current public USD consumption prices from the unauthenticated
+[Azure Retail Prices API](https://learn.microsoft.com/en-us/rest/api/cost-management/retail-prices/azure-retail-prices).
+Only public region/product filters are sent; resource identities and quantities
+stay local. No prices are hard-coded into either script.
+
+```powershell
+. .\PowerShell\Get-AzStorageRedundancyCost.ps1
+# $results from IncludeDetail + IncludeCurrentCapacity above.
+$estimate = @(Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10')
+$estimate | Where-Object RecordType -eq 'Scenario' |
+    Select-Object StorageAccountName, Redundancy, Currency, PricedSubtotal,
+        Status, UnpricedComponents, ExcludedCharges
+$estimate | Export-Csv .\storage-redundancy-estimate.csv -NoTypeInformation
+ConvertTo-Json -InputObject $estimate -Depth 6 |
+    Set-Content .\storage-redundancy-estimate.json -Encoding utf8
+```
+
+The planning assumptions are explicit:
+
+- Hold the latest sampled capacity constant for the modeled calendar month.
+- Scale observed request counts by modeled-month hours divided by the actual
+  contiguous observed-window hours. Identical quantities are used for each SKU.
+  This assumes the measured activity is representative. Failed requests remain
+  in the estimate; request-based operations are not exact billed counts.
+- Use current retail prices, even if `ModelMonth` is historical. Historical
+  invoice validation is not performed. Rates, meter IDs, effective dates, volume
+  bands and fetch timestamps are retained.
+- Model standard flat-namespace block/append Blob accounts using `Blob Storage`
+  for GRS/RA-GRS and `General Block Blob v2` for ZRS/GZRS. Premium, page blobs,
+  HNS/DFS endpoint schedules and unresolved access tiers remain unpriced.
+- Apply graduated capacity volume bands **per account/tier**, not across the
+  subscription. A different contractual aggregation scope requires a separate
+  adjustment. Rates/benefits never change the measured quantities.
+
+The command validates contiguous/nonoverlapping transaction periods and that
+Detail counts reconcile with AccountTotal. It rejects duplicate snapshot splits
+and mixed snapshot timestamps. Collector summaries, historical capacity rows,
+billing rows and overlapping snapshot totals are not priced again. Empty request
+detail is accepted as observed zero only when reconciled AccountTotal is zero.
+
+For a GPv1-to-GPv2 projection, choose `-LegacyTargetTier Hot` (or another explicit
+tier). This is a migration/pricing assumption, not a claim that GPv1 has a Hot
+tier. When ARM omits `IsHnsEnabled`, the command leaves the account unsupported
+unless you explicitly choose `-AssumeFlatNamespace`; it never overrides known
+HNS-enabled accounts. Both assumptions are recorded on output rows:
+
+```powershell
+# Explicit planning assumptions, not changes to Azure resources.
+$estimate = @(Get-AzStorageRedundancyCost -Records $results `
+    -ModelMonth '2026-10' -LegacyTargetTier Hot -AssumeFlatNamespace)
+```
+
+Archive under ZRS/GZRS and measured secondary reads under non-RA options mark the
+scenario `Ineligible`. A catalog entry does not prove deployment eligibility in
+the region; confirm Azure support and your recovery requirements separately.
+Unknown APIs, iterative/size-dependent operations, missing rates, ambiguous
+catalog identities and unavailable inputs remain unpriced with warnings.
+Regional non-primary reference meters are retained where the retail catalog
+publishes operation prices that way; their primary flags remain in rate evidence.
+HTTP, invalid catalog and pagination failures terminate explicitly.
+
+| Pricing output | Meaning |
+| --- | --- |
+| `RecordType` | `Estimate`: individual capacity/request component; `Scenario`: account/SKU subtotal |
+| `Redundancy`, `TargetAccountKind`, `ModelMonth` | ZRS, GRS, GZRS or RA-GRS; modeled GPv2 account and month |
+| `Quantity`, `QuantityUnit`, `QuantityBasis` | Constant GiBMonth capacity or scaled EstimatedOperations, with the assumption identified |
+| `SourceStartTime`, `SourceEndTime`, `ScaleFactor` | Observed request coverage and explicit monthly scaling factor |
+| `CapacitySampleTimeUtc` | Capacity sample used; not a historical monthly average |
+| `NamespaceBasis`, `LegacyTargetTierAssumption` | Current namespace evidence or explicitly selected model assumptions |
+| `ProductName`, `SkuName`, `MeterName`, `MeterId`, `RateBandsJson`, `PricesObservedAtUtc` | Exact catalog selection and dated price evidence |
+| `EstimatedCost` | Priced line cost in USD; null for an unpriced line |
+| `PricedSubtotal` | Sum of priced lines only; null if nothing was priced |
+| `TotalRecurringCost`, `OneTimeCost` | Always null: a subtotal does not establish full recurring or conversion costs |
+| `Status`, `UnpricedComponents`, `ExcludedCharges` | Planning/partial/ineligible status, unresolved lines and excluded charge components |
+
+**These are partial planning estimates**, not complete monthly bills. Retrieval,
+network bandwidth, geo-replication transfer, early deletion, features, one-time
+migration/conversion costs, discounts, reservations and taxes are excluded
+explicitly, not set to zero. Never sum line estimates and scenario subtotals.
+The currently selected small subscription is suitable for smoke-checking the
+report, not validating every account type or feature.
+
+The October 14 live pricing check used the saved four-account current footprint
+and seven-day observed requests, modeled October's 31 days. For demonstration,
+it explicitly selected GPv2 Hot for GPv1 projections and assumed flat namespace
+only where ARM omitted the HNS property. It produced 16 scenario rows and priced
+all supported capacity/read/other-operation inputs. The 22 `Unknown` API
+requests on `samnsigs001` remained unpriced, as did the excluded charges listed
+above. These choices are planning assumptions, not independently verified
+historical configuration or a complete current-state invoice reconciliation.
+Retail prices support commercial Azure; sovereign-cloud catalogs are outside
+this command's scope.
+
 ## Historical capacity for pricing preparation
 
 Add `-IncludeCapacity` to collect used capacity for the same historical range.

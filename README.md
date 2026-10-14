@@ -15,3 +15,6 @@ An opt-in workload baseline separates observed and billed quantities and compare
 monthly tiered capacity with billing, exposing unresolved mappings and differences.
 For today's footprint, `-IncludeCurrentCapacity` adds the latest reconciled
 capacity by tier with sample timestamps/age, independently of historical coverage.
+A separate `Get-AzStorageRedundancyCost` command applies current public retail
+rates to constant capacity and explicitly scaled requests for ZRS/GRS/GZRS/RA-GRS,
+returning partial planning subtotals with unsupported/excluded charges visible.
