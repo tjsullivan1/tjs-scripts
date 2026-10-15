@@ -27,6 +27,7 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:blobType = 'BlockBlob'
         $script:capacityTier = 'Hot'
         $script:accountKind = 'StorageV2'
+        $script:skuName = 'Standard_LRS'
         $script:ops = @(@{ Api = 'GetBlob'; Tier = 'Hot'; Response = 'Success'; Count = 3 })
         Mock Get-AzContext {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub; Name = 'Example' } }
@@ -34,7 +35,7 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         Mock Invoke-AzRestMethod {
             if ($Path -notmatch 'Microsoft.Insights') {
                 return [pscustomobject]@{ StatusCode = 200; Content = (@{
-                    kind = $script:accountKind; sku = @{ name = 'Standard_LRS' }; location = 'eastus'
+                    kind = $script:accountKind; sku = @{ name = $script:skuName }; location = 'eastus'
                     properties = @{ isHnsEnabled = $script:hns; accessTier = 'Hot' }
                 } | ConvertTo-Json -Depth 5) }
             }
@@ -109,6 +110,40 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $comparison.BillingCoverageStatus | Should Be 'CsvCoverageUnverified'
         @($rows | Where-Object RecordType -eq 'Detail').Count | Should Be 1
         @($rows | Where-Object RecordType -eq 'CapacityAccountTotal').Count | Should Be 1
+    }
+
+    It 'compares documented ADLS data capacity with recognized ADLS billing independently of index' {
+        $script:hns = $true
+        $script:blobType = 'Azure Data Lake Storage'
+        $script:capacityTier = 'Cool'
+        $script:costRows[0].MeterName = 'Cool LRS Data Stored'
+        $script:costRows[0].MeterSubCategory = 'Azure Data Lake Storage Gen2'
+        $script:costRows[0].ProductName = 'Azure Data Lake Storage Gen2 Hierarchical Namespace'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
+        $comparison = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'UsedCapacity' }
+        $comparison.ComparisonStatus | Should Be 'QuantitiesMatch'
+        $comparison.ObservedCapacityGiBMonth | Should Be 2
+        $comparison.BilledCapacityGiBMonth | Should Be 2
+        $comparison.CapacityDifferenceGiBMonth | Should Be 0
+        $comparison.Tier | Should Be 'Cool'
+        $comparison.CompletenessStatus | Should Be 'NotBillingValidation'
+        @($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'HnsIndexCapacity' }).Count | Should Be 1
+    }
+
+    It 'does not compare the ADLS dimension without known Standard StorageV2 HNS configuration' {
+        $script:blobType = 'Azure Data Lake Storage'
+        $script:costRows[0].MeterSubCategory = 'Azure Data Lake Storage Gen2'
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        foreach ($case in @(@($false, 'StorageV2', 'Standard_LRS'), @($null, 'StorageV2', 'Standard_LRS'),
+                @($true, 'Storage', 'Standard_LRS'), @($true, 'StorageV2', 'Premium_LRS'))) {
+            $script:hns = $case[0]; $script:accountKind = $case[1]; $script:skuName = $case[2]
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
+            $comparison = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'UsedCapacity' }
+            $comparison.ComparisonStatus | Should Be 'UnsupportedBlobType'
+            ($null -eq $comparison.ObservedCapacityGiBMonth) | Should Be $true
+            ($null -eq $comparison.CapacityDifferenceGiBMonth) | Should Be $true
+        }
     }
 
     It 'compares HNS index independently instead of adding its space to Blob data' {

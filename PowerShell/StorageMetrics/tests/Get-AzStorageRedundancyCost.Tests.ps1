@@ -243,6 +243,149 @@ Describe 'Public storage redundancy planning estimate' {
         { Get-AzStorageRedundancyCost -Records (@($script:records) + @($failure)) -ModelMonth '2026-09' } | Should Throw 'collector failures'
     }
 
+    It 'includes 2.4 decimal PB of documented ADLS Cool capacity in either explicit HNS mode' {
+        $script:records[0].IsHnsEnabled = $true
+        $script:records[0].BlobType = 'Azure Data Lake Storage'
+        $script:records[0].Tier = 'Cool'
+        $script:records[0].CurrentUsedGiB = 2235174.1790771484375d
+        $script:catalog += $script:hnsCatalog
+        foreach ($mode in @('AdlsGen2', 'BlobHns')) {
+            $rows = @(Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-10' -PricingMode $mode -WarningAction SilentlyContinue)
+            $capacity = @($rows | Where-Object Component -eq 'Capacity')
+            $capacity.Count | Should Be 4
+            @($capacity | Where-Object {
+                $_.Quantity -ne 2235174.1790771484375d -or
+                $_.EstimatedCost -ne 22351.741790771484375d -or
+                $_.Status -ne 'PlanningEstimate'
+            }).Count | Should Be 0
+            @($rows | Where-Object {
+                $_.RecordType -eq 'Scenario' -and
+                ($_.PricedSubtotal -lt 22351.741790771484375d -or
+                    $_.UnpricedComponents -match '(^|;)Capacity:' -or $_.Status -ne 'PartialEstimate')
+            }).Count | Should Be 0
+        }
+    }
+
+    It 'combines BlockBlob and documented ADLS in one tier before applying bands and charges index once' {
+        $script:records[0].IsHnsEnabled = $true
+        $adls = $script:records[0].PSObject.Copy()
+        $adls.BlobType = 'Azure Data Lake Storage'
+        $index = $adls.PSObject.Copy()
+        $index.RecordType = 'CurrentIndexCapacity'; $index.CapacityStatus = 'LatestSample'
+        $index.CurrentUsedGiB = 3; $index.Tier = $null; $index.BlobType = $null
+        $script:records += @($adls, $index)
+        $bands = @(
+            foreach ($rate in ($script:hnsCatalog | Where-Object meterName -like 'Hot * Data Stored')) {
+                $band = $rate.PSObject.Copy()
+                $band.tierMinimumUnits = 1; $band.retailPrice = 0.01
+                $band
+            }
+        )
+        $script:catalog += $script:hnsCatalog + $bands
+        foreach ($mode in @('AdlsGen2', 'BlobHns')) {
+            $rows = @(Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09' -PricingMode $mode)
+            $capacity = @($rows | Where-Object Component -eq 'Capacity')
+            $capacity.Count | Should Be 4
+            @($capacity | Where-Object { $_.Quantity -ne 4 -or $_.EstimatedCost -ne [decimal]0.05 }).Count | Should Be 0
+            $indexes = @($rows | Where-Object Component -eq 'HnsIndexCapacity')
+            $indexes.Count | Should Be 4
+            @($indexes | Where-Object { $_.Quantity -ne 3 -or $_.EstimatedCost -ne [decimal]0.03 }).Count | Should Be 0
+            @($rows | Where-Object {
+                $_.RecordType -eq 'Scenario' -and
+                $_.PricedSubtotal -ne $(if ($mode -eq 'AdlsGen2') { [decimal]0.092 } else { [decimal]0.104 })
+            }).Count | Should Be 0
+        }
+    }
+
+    It 'keeps unknown and page capacity unpriced including a mixed tier with supported ADLS' {
+        $script:records[0].IsHnsEnabled = $true
+        $script:records[0].BlobType = 'Azure Data Lake Storage'
+        $unsupported = $script:records[0].PSObject.Copy()
+        $script:catalog += $script:hnsCatalog
+        foreach ($mode in @('AdlsGen2', 'BlobHns')) {
+            foreach ($type in @('PageBlob', 'Unknown', $null)) {
+                $unsupported.BlobType = $type
+                $rows = @(Get-AzStorageRedundancyCost -Records ($script:records + @($unsupported)) -ModelMonth '2026-09' -PricingMode $mode -WarningAction SilentlyContinue)
+                $capacity = @($rows | Where-Object Component -eq 'Capacity')
+                $capacity.Count | Should Be 4
+                @($capacity | Where-Object {
+                    $_.Status -ne 'UnsupportedConfiguration' -or $null -ne $_.Quantity -or $null -ne $_.EstimatedCost
+                }).Count | Should Be 0
+            }
+        }
+    }
+
+    It 'retains missing sample unresolved tier and negative capacity safeguards for documented ADLS' {
+        $script:records[0].IsHnsEnabled = $true
+        $script:records[0].BlobType = 'Azure Data Lake Storage'
+        $script:catalog += $script:hnsCatalog
+        foreach ($mode in @('AdlsGen2', 'BlobHns')) {
+            foreach ($case in @(@('Hot', $null, 'LatestReconciledSample', 'CapacityUnavailable'),
+                    @('Hot', 2, 'Unavailable', 'CapacityUnavailable'), @('Unknown', 2, 'LatestReconciledSample', 'TierUnresolved'))) {
+                $script:records[0].Tier = $case[0]
+                $script:records[0].CurrentUsedGiB = $case[1]
+                $script:records[0].CapacityStatus = $case[2]
+                $rows = @(Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09' -PricingMode $mode -WarningAction SilentlyContinue)
+                @($rows | Where-Object {
+                    $_.Component -eq 'Capacity' -and
+                    ($_.Status -ne $case[3] -or $null -ne $_.Quantity -or $null -ne $_.EstimatedCost)
+                }).Count | Should Be 0
+            }
+            $script:records[0].Tier = 'Hot'
+            $script:records[0].CapacityStatus = 'LatestReconciledSample'
+            $script:records[0].CurrentUsedGiB = -1
+            { Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09' -PricingMode $mode } |
+                Should Throw 'Capacity cannot be negative'
+        }
+    }
+
+    It 'does not admit the documented ADLS dimension into the default flat schedule' {
+        $script:records[0].BlobType = 'Azure Data Lake Storage'
+        $script:catalog += $script:hnsCatalog
+        foreach ($hns in @($true, $false, $null)) {
+            $script:records[0].IsHnsEnabled = $hns
+            $rows = @(Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09' -AssumeFlatNamespace -WarningAction SilentlyContinue)
+            @($rows | Where-Object {
+                $_.Component -eq 'Capacity' -and
+                ($_.Status -ne 'UnsupportedConfiguration' -or $null -ne $_.Quantity -or $null -ne $_.EstimatedCost)
+            }).Count | Should Be 0
+        }
+    }
+
+    It 'reprices saved ADLS collector JSON with default date parsing and preserved timestamp strings' {
+        $script:records[0].IsHnsEnabled = $true
+        $script:records[0].BlobType = 'Azure Data Lake Storage'
+        $script:records[0].Tier = 'Cool'
+        foreach ($record in $script:records[1..2]) {
+            $record.StartTime = '2026-09-01T02:00:00+02:00'
+            $record.EndTime = '2026-09-11T02:00:00+02:00'
+        }
+        $script:catalog += $script:hnsCatalog
+        $json = ConvertTo-Json -InputObject $script:records -Depth 6
+        $imports = @(@{ Rows = @(ConvertFrom-Json -InputObject $json) })
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+            $imports += @{ Rows = @(ConvertFrom-Json -InputObject $json -DateKind String) }
+        }
+        foreach ($import in $imports) {
+            foreach ($mode in @('AdlsGen2', 'BlobHns')) {
+                $rows = @(Get-AzStorageRedundancyCost -Records $import.Rows -ModelMonth '2026-09' -PricingMode $mode -WarningAction SilentlyContinue)
+                $capacity = @($rows | Where-Object Component -eq 'Capacity')
+                $capacity.Count | Should Be 4
+                @($capacity | Where-Object {
+                    $_.Quantity -ne 2 -or $_.EstimatedCost -ne [decimal]0.02 -or
+                    [datetimeoffset]$_.CapacitySampleTimeUtc -ne [datetimeoffset]'2026-10-01T00:00:00Z'
+                }).Count | Should Be 0
+                $reads = @($rows | Where-Object Component -eq 'Reads')
+                $reads.Count | Should Be 4
+                @($reads | Where-Object {
+                    $_.Quantity -ne 30000 -or $_.ScaleFactor -ne 3 -or
+                    [datetimeoffset]$_.SourceStartTime -ne [datetimeoffset]'2026-09-01T00:00:00Z' -or
+                    [datetimeoffset]$_.SourceEndTime -ne [datetimeoffset]'2026-09-11T00:00:00Z'
+                }).Count | Should Be 0
+            }
+        }
+    }
+
     It 'opts into DFS HNS capacity and reads without borrowing flat or Blob endpoint prices' {
         $script:records[0].IsHnsEnabled = $true
         $hns = @(
@@ -356,6 +499,7 @@ Describe 'Public storage redundancy planning estimate' {
     }
 
     It 'requires known Standard StorageV2 HNS configuration without overriding flat or unknown namespaces' {
+        $script:records[0].BlobType = 'Azure Data Lake Storage'
         $script:catalog += $script:hnsCatalog
         foreach ($mode in @('BlobHns', 'AdlsGen2')) {
             foreach ($hns in @($false, $null)) {
@@ -412,6 +556,7 @@ Describe 'Public storage redundancy planning estimate' {
 
     It 'retains free unknown Archive secondary and endpoint-specific request gates in HNS modes' {
         $script:records[0].IsHnsEnabled = $true; $script:records[0].Tier = 'Archive'
+        $script:records[0].BlobType = 'Azure Data Lake Storage'
         $script:records[2].GeoType = 'Secondary'
         $script:catalog += $script:hnsCatalog
         foreach ($mode in @('AdlsGen2', 'BlobHns')) {

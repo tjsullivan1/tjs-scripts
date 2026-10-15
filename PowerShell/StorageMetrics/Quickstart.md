@@ -187,6 +187,47 @@ the supplied workload; the HNS flag does not identify the endpoint. These are
 alternative estimates, **not additive**. Mixed-endpoint requests need separate,
 reconciled inputs; adding both scenario subtotals would double-count capacity.
 
+Both HNS modes accept Azure Monitor's documented `BlobType = Azure Data Lake
+Storage` as data capacity, as well as BlockBlob/AppendBlob. Same-tier splits
+share one graduated capacity calculation. Public HNS data-storage rates are
+available; the ADLS dimension does not by itself mean capacity is unpriced.
+PageBlob and unknown types remain unsupported.
+
+`Scenario.Status = PartialEstimate` is intentional even when every supported
+line has a price. Check the actual capacity lines and omitted components:
+
+```powershell
+$adlsEstimate | Where-Object Component -eq 'Capacity' |
+    Select-Object Redundancy, Tier, Quantity, QuantityUnit, EstimatedCost, Status
+$adlsEstimate | Where-Object RecordType -eq 'Scenario' |
+    Select-Object Redundancy, PricedSubtotal, UnpricedComponents
+```
+
+An unpriced capacity line has null quantity/cost and contributes nothing to the
+subtotal. A small subtotal can therefore reflect priced requests/index only,
+not the cost of storing the account's data. Inspect `UnpricedComponents` and
+warnings rather than treating `PartialEstimate` as proof that capacity is absent.
+
+To reprice an existing collector JSON export without collecting metrics again:
+
+```powershell
+. .\PowerShell\StorageMetrics\Get-AzStorageRedundancyCost.ps1
+$jsonOptions = @{}
+# PowerShell 7.5+ can preserve timestamp strings; older PS7 uses its default parser.
+if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+    $jsonOptions.DateKind = 'String'
+}
+$saved = @(Get-Content .\storage-metrics.json -Raw | ConvertFrom-Json @jsonOptions)
+$adlsEstimate = @(Get-AzStorageRedundancyCost -Records $saved `
+    -ModelMonth $modelMonth -PricingMode AdlsGen2 -ErrorAction Stop)
+```
+
+The export must contain `CurrentCapacity` and reconciled `AccountTotal`/`Detail`
+records from `-IncludeCurrentCapacity -IncludeDetail`. Use `BlobHns` instead when
+that is the workload's endpoint schedule. Repricing fetches public retail rates
+only; it does not refresh the saved capacity snapshot or call private Azure or
+billing APIs. Keep the original snapshot date in mind. CSV is not a typed input.
+
 Both HNS modes add a separate Hot index-capacity line from `CurrentIndexCapacity`,
 once per account/scenario, without adding it to Blob data capacity. Missing index
 samples or rates stay unpriced, not zero. DFS read/write costs approximate requests:
