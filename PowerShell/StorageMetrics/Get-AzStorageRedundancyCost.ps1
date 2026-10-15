@@ -166,6 +166,8 @@ function Get-AzStorageRedundancyCost {
         $flatNamespace = $account.IsHnsEnabled -eq $false -or
             ($null -eq $account.IsHnsEnabled -and $AssumeFlatNamespace)
         $hnsMode = $PricingMode -ne 'BlobFlat'
+        $supportedCapacityTypes = @('BlockBlob', 'AppendBlob')
+        if ($hnsMode) { $supportedCapacityTypes += 'Azure Data Lake Storage' }
         $supportedConfiguration = if ($hnsMode) {
             $account.IsHnsEnabled -eq $true -and $account.AccountKind -eq 'StorageV2'
         } else {
@@ -247,7 +249,7 @@ function Get-AzStorageRedundancyCost {
                 }
                 $line.Status = 'UnsupportedConfiguration'
                 if ($supportedConfiguration -and
-                    -not @($capacityGroup.Group | Where-Object BlobType -notin @('BlockBlob', 'AppendBlob')).Count) {
+                    -not @($capacityGroup.Group | Where-Object BlobType -notin $supportedCapacityTypes).Count) {
                     if ($line.Tier -notin @('Hot', 'Cool', 'Cold', 'Archive')) {
                         $line.Status = 'TierUnresolved'
                     } elseif ($line.Tier -eq 'Archive' -and $scenario -in @('ZRS', 'GZRS')) {

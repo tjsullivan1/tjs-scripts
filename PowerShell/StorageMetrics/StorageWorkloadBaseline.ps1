@@ -68,6 +68,11 @@ function Get-StorageWorkloadBaseline {
     }
 
     foreach ($template in ($Records | Where-Object RecordType -eq 'AccountTotal')) {
+        $supportedCapacityTypes = @('BlockBlob', 'AppendBlob')
+        if ($template.IsHnsEnabled -eq $true -and $template.AccountKind -eq 'StorageV2' -and
+            $template.SkuName -like 'Standard_*') {
+            $supportedCapacityTypes += 'Azure Data Lake Storage'
+        }
         $period = @($Records | Where-Object { $_.ResourceId -eq $template.ResourceId -and $_.Month -eq $template.Month })
         $capacityFailed = @($Records | Where-Object { $_.ResourceId -eq $template.ResourceId -and $_.RecordType -eq 'CapacityError' }).Count -gt 0
         $billingFailed = @($period | Where-Object RecordType -eq 'CostError').Count -gt 0
@@ -175,7 +180,7 @@ function Get-StorageWorkloadBaseline {
                 }
             }
             if ($group.Kind -eq 'UsedCapacity' -and @($measured | Where-Object {
-                $_.BlobType -notin @('BlockBlob', 'AppendBlob')
+                $_.BlobType -notin $supportedCapacityTypes
             }).Count) {
                 $comparison.ObservedCapacityGiBMonth = $null
                 $comparison.ComparisonStatus = 'UnsupportedBlobType'

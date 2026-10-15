@@ -297,6 +297,15 @@ Use disjoint, reconciled request inputs for a mixed-endpoint model, and count
 capacity/index only once: the two example scenario subtotals are alternatives,
 not amounts to add together.
 
+Both HNS modes accept the documented Azure Monitor
+[`BlobType = Azure Data Lake Storage`](https://learn.microsoft.com/en-us/azure/storage/blobs/monitor-blob-storage-reference#dimensions-specific-to-blob-storage)
+for known HNS-enabled Standard StorageV2 accounts, alongside BlockBlob/AppendBlob.
+Microsoft includes append blobs in the BlockBlob metric dimension; the legacy
+AppendBlob label remains accepted for existing inputs. Same-tier splits are
+combined before applying graduated capacity bands once per account/tier.
+PageBlob and unknown types remain unsupported, and `BlobFlat` does not accept
+the ADLS dimension. The metric dimension does not select an endpoint schedule.
+
 Both HNS modes price `CurrentCapacity` data by tier and a separate
 `HnsIndexCapacity` line once per account/scenario. The index line uses only
 `CurrentIndexCapacity.CurrentUsedGiB`, held constant for the model month, with its
@@ -370,6 +379,12 @@ HTTP, invalid catalog and pagination failures terminate explicitly.
 network bandwidth, geo-replication transfer, early deletion, features, one-time
 migration/conversion costs, discounts, reservations and taxes are excluded
 explicitly, not set to zero. Never sum line estimates and scenario subtotals.
+`Scenario.Status = PartialEstimate` remains intentional even if all supported
+lines are priced. It does not mean that public ADLS data-capacity rates are
+unavailable. Inspect `Component = Capacity` for quantity, cost and status, and
+the scenario's `UnpricedComponents` for omissions. An unsupported/unavailable
+capacity line contributes nothing to `PricedSubtotal`; a small subtotal might
+include only requests/index rather than the account's data footprint.
 Choosing `BlobHns` does not include SFTP hourly feature costs or establish that
 NFS/SFTP supports a proposed tier, redundancy or region; check feature eligibility
 separately.
@@ -528,11 +543,14 @@ add `Workload` to `BilledWorkload`, sum different units, or sum both original
 and normalized costs.
 
 Capacity diagnostics group by account, month and observed/billed access tier.
-They sum comparable BlockBlob/AppendBlob splits within the tier; PageBlob or
-unknown blob types are blocked because the recognized billing meters describe
-block-blob capacity. HNS index is compared separately, without inventing its
-metric tier. Rates and benefit coverage do not change quantities; disjoint
-meter/rate/benefit rows can contribute to the same quantity comparison.
+They sum comparable BlockBlob/AppendBlob splits within the tier, also accepting
+the documented `Azure Data Lake Storage` dimension for known HNS-enabled
+Standard StorageV2 accounts. Recognized ADLS `Data Stored` billing meters already
+normalize to GiBMonth; the metric dimension is not a reason to discard that
+comparison. PageBlob and unknown blob types remain blocked. HNS index is compared
+separately, without inventing its metric tier. Rates and benefit coverage do not
+change quantities; disjoint meter/rate/benefit rows can contribute to the same
+quantity comparison.
 
 There is one explicitly non-tiered case: standard GPv1 accounts (`AccountKind =
 Storage`) whose capacity series are all labeled `Untiered`. Their untiered
@@ -550,7 +568,7 @@ history; a GPv1-to-GPv2 pricing change still needs separate review. See
 | `MetricsIncomplete` | Complete sampled capacity is unavailable; billed quantities can remain available |
 | `MetricsFailed` / `BillingUnavailable` | An underlying capacity query or billing request/import failed; inspect original error records |
 | `TierUnresolved` | Missing or unsupported tier, including `Untiered` outside the verified GPv1 case; account default tier is never substituted |
-| `UnsupportedBlobType` | The metric contains a blob type outside the recognized block-blob meter scope |
+| `UnsupportedBlobType` | The metric contains a type outside BlockBlob/AppendBlob or documented ADLS on known HNS-enabled Standard StorageV2 |
 | `UnverifiedUnit` | At least one matching billing meter lacks a verified GiBMonth conversion; billed comparison quantity remains null |
 | `AmbiguousBillingContext` | Different currency, meter-region or redundancy contexts would be combined; billed comparison quantity remains null |
 | `BillingAdjustmentsPresent` | Negative Usage corrections require review; the raw/net billed evidence is retained but not exposed as usable baseline quantity |
