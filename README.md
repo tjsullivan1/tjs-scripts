@@ -20,3 +20,11 @@ capacity by tier with sample timestamps/age, independently of historical coverag
 A separate `Get-AzStorageRedundancyCost` command applies current public retail
 rates to constant capacity and explicitly scaled requests for ZRS/GRS/GZRS/RA-GRS,
 returning partial planning subtotals with unsupported/excluded charges visible.
+Flat Blob remains the default. For an HNS-enabled Standard GPv2 account, use
+`Get-AzStorageRedundancyCost -Records $recent -ModelMonth '2026-10' -PricingMode AdlsGen2`
+for DFS workloads, or `-PricingMode BlobHns` for Blob/NFS/SFTP workloads.
+Both include separate measured HNS index capacity; DFS requests remain planning
+approximations because 4-MiB transfers and recursive operations can differ from
+billable units. Choose the actual endpoint schedule; do not add alternative
+scenario subtotals together. See the StorageMetrics quickstart for collection
+and examples.

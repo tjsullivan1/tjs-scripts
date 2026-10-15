@@ -226,7 +226,7 @@ stay local. No prices are hard-coded into either script.
 $estimate = @(Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10')
 $estimate | Where-Object RecordType -eq 'Scenario' |
     Select-Object StorageAccountName, Redundancy, Currency, PricedSubtotal,
-        Status, UnpricedComponents, ExcludedCharges
+        PricingMode, Status, UnpricedComponents, ExcludedCharges
 $estimate | Export-Csv .\storage-redundancy-estimate.csv -NoTypeInformation
 ConvertTo-Json -InputObject $estimate -Depth 6 |
     Set-Content .\storage-redundancy-estimate.json -Encoding utf8
@@ -242,9 +242,10 @@ The planning assumptions are explicit:
 - Use current retail prices, even if `ModelMonth` is historical. Historical
   invoice validation is not performed. Rates, meter IDs, effective dates, volume
   bands and fetch timestamps are retained.
-- Model standard flat-namespace block/append Blob accounts using `Blob Storage`
-  for GRS/RA-GRS and `General Block Blob v2` for ZRS/GZRS. Premium, page blobs,
-  HNS/DFS endpoint schedules and unresolved access tiers remain unpriced.
+- Default to `-PricingMode BlobFlat`: standard flat-namespace block/append Blob
+  accounts using `Blob Storage` for GRS/RA-GRS and `General Block Blob v2` for
+  ZRS/GZRS. HNS is opt-in as described below. Premium, page blobs and unresolved
+  access tiers remain unpriced.
 - Apply graduated capacity volume bands **per account/tier**, not across the
   subscription. A different contractual aggregation scope requires a separate
   adjustment. Rates/benefits never change the measured quantities.
@@ -267,24 +268,99 @@ $estimate = @(Get-AzStorageRedundancyCost -Records $results `
     -ModelMonth '2026-10' -LegacyTargetTier Hot -AssumeFlatNamespace)
 ```
 
+### ADLS Gen2 and HNS endpoint selection
+
+HNS does not identify the workload's endpoint. Select the schedule explicitly,
+following Microsoft's [endpoint and file-structure guidance](https://learn.microsoft.com/en-us/azure/storage/common/storage-plan-manage-costs#find-the-unit-price-for-each-meter):
+
+```powershell
+# DFS / ABFS / Data Lake Storage REST APIs on an HNS account.
+$adls = @(Get-AzStorageRedundancyCost -Records $results `
+    -ModelMonth '2026-10' -PricingMode AdlsGen2)
+# Alternative estimate for Blob REST / NFS v3 / SFTP on an HNS account.
+$blobHns = @(Get-AzStorageRedundancyCost -Records $results `
+    -ModelMonth '2026-10' -PricingMode BlobHns)
+```
+
+| `PricingMode` | Required namespace and account | Data/operation catalog product |
+| --- | --- | --- |
+| `BlobFlat` (default) | Flat Standard BlobStorage/GPv2, or explicit GPv1 tier projection | `Blob Storage` (GRS/RA-GRS); `General Block Blob v2` (ZRS/GZRS) |
+| `BlobHns` | Known HNS-enabled Standard StorageV2 | `General Block Blob v2 Hierarchical Namespace` |
+| `AdlsGen2` | Known HNS-enabled Standard StorageV2, DFS endpoint workload | `Azure Data Lake Storage Gen2 Hierarchical Namespace` |
+
+Unknown or false HNS flags cannot opt into an HNS schedule, even with
+`-AssumeFlatNamespace`. DFS on flat namespace is outside this option's scope.
+The selected mode applies to all supplied accounts/requests. Choose the schedule
+from workload knowledge, not solely the account flag or API category. The command
+does not discover endpoint proportions or automatically split mixed workloads.
+Use disjoint, reconciled request inputs for a mixed-endpoint model, and count
+capacity/index only once: the two example scenario subtotals are alternatives,
+not amounts to add together.
+
+Both HNS modes price `CurrentCapacity` data by tier and a separate
+`HnsIndexCapacity` line once per account/scenario. The index line uses only
+`CurrentIndexCapacity.CurrentUsedGiB`, held constant for the model month, with its
+own sample timestamp. The [index is always Hot](https://learn.microsoft.com/en-us/azure/storage/common/storage-plan-manage-costs#data-storage-and-index-meters),
+regardless of data tiers. Both endpoint modes select the shared `Hot <redundancy>
+Index` meter under `Azure Data Lake Storage Gen2 Hierarchical Namespace`; the
+Blob-endpoint product does not publish an index meter. Index is neither added to
+data capacity nor charged once per tier. Historical `IndexCapacity` and overlapping
+account totals are ignored. Duplicate current index snapshots fail; absent or
+unavailable index samples produce `CapacityUnavailable` with null quantity/cost.
+A measured zero is retained, but still requires an unambiguous catalog rate.
+
+| Request category | `BlobHns` | `AdlsGen2` |
+| --- | --- | --- |
+| `Reads`, `Writes` | Observed Hot/Cool/Cold tier, per 10K | Observed Hot/Cool/Cold tier, per 10K |
+| `AllOtherOperations` | Hot Other Operations, per 10K | Hot Other Operations, per 10K |
+| `ListAndCreateContainer` (Blob APIs) | Hot Write Operations meter, per 10K, matching the [Blob pricing page's](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/) list/create schedule | Unsupported; not relabeled as DFS list |
+| `IterativeReads` (DFS list APIs) | Unsupported | Hot Iterative Read Operations, per 10K |
+| `IterativeWrites` | Unsupported | Hot Iterative Write Operations, **per 100** |
+| `Free` | Documented free, zero | Documented free, zero |
+| `Unmapped` | Unsupported | Unsupported |
+
+`Tier` retains the observed request tier; `SkuName` identifies the selected price
+tier, including Hot-only other/list/iterative meters. RA-GRS meter names differ by
+endpoint and tier; selection uses the published names within the exact product
+and SKU, never a rate copied from another redundancy or namespace.
+The existing request-tier gate remains: paid categories require an observed
+Hot/Cool/Cold tier; unresolved or Archive request tiers remain unpriced.
+
+Request estimates use the original monthly normalization, **not exact billed
+operation counts**. [ADLS transfer pricing](https://azure.microsoft.com/en-us/pricing/details/storage/data-lake/)
+charges read/write transfers in 4-MiB units, so a larger request can incur multiple
+transactions. Recursive ACL changes, listings, continuation pages, renames and
+client retries can also make request counts differ from billed iterative units.
+The estimator has no per-request transfer sizes or recursive fan-out evidence:
+it does not infer multipliers from bytes transferred or multiply every request
+by a guessed size. Review `BillabilityAssumption` on every line and summary.
+Use billing evidence for exact quantities. See Microsoft's
+[API category mapping](https://learn.microsoft.com/en-us/azure/storage/blobs/map-rest-apis-transaction-categories)
+and [cost examples](https://learn.microsoft.com/en-us/azure/storage/blobs/blob-storage-estimate-costs)
+for size-dependent and iterative billing.
+
+### Eligibility and output
+
 Archive under ZRS/GZRS and measured secondary reads under non-RA options mark the
 scenario `Ineligible`. A catalog entry does not prove deployment eligibility in
 the region; confirm Azure support and your recovery requirements separately.
-Unknown APIs, iterative/size-dependent operations, missing rates, ambiguous
-catalog identities and unavailable inputs remain unpriced with warnings.
+Unknown APIs, unsupported endpoint categories, missing rates, ambiguous catalog
+identities and unavailable inputs remain unpriced with warnings. Supported HNS
+iterative/size-dependent categories are priced only as request-based approximations.
 Regional non-primary reference meters are retained where the retail catalog
 publishes operation prices that way; their primary flags remain in rate evidence.
 HTTP, invalid catalog and pagination failures terminate explicitly.
 
 | Pricing output | Meaning |
 | --- | --- |
-| `RecordType` | `Estimate`: individual capacity/request component; `Scenario`: account/SKU subtotal |
+| `RecordType` | `Estimate`: individual capacity/index/request component; `Scenario`: account/SKU subtotal |
 | `Redundancy`, `TargetAccountKind`, `ModelMonth` | ZRS, GRS, GZRS or RA-GRS; modeled GPv2 account and month |
 | `Quantity`, `QuantityUnit`, `QuantityBasis` | Constant GiBMonth capacity or scaled EstimatedOperations, with the assumption identified |
 | `SourceStartTime`, `SourceEndTime`, `ScaleFactor` | Observed request coverage and explicit monthly scaling factor |
 | `CapacitySampleTimeUtc` | Capacity sample used; not a historical monthly average |
 | `NamespaceBasis`, `LegacyTargetTierAssumption` | Current namespace evidence or explicitly selected model assumptions |
-| `ProductName`, `SkuName`, `MeterName`, `MeterId`, `RateBandsJson`, `PricesObservedAtUtc` | Exact catalog selection and dated price evidence |
+| `PricingMode`, `BillabilityAssumption` | Explicit endpoint/namespace schedule and request approximation limitations on every row |
+| `ProductName`, `SkuName`, `MeterName`, `MeterId`, `RateUnit`, `RateBandsJson`, `PricesObservedAtUtc` | Exact catalog selection, rate unit (`1 GB/Month`, `10K`, `100`) and dated price evidence |
 | `EstimatedCost` | Priced line cost in USD; null for an unpriced line |
 | `PricedSubtotal` | Sum of priced lines only; null if nothing was priced |
 | `TotalRecurringCost`, `OneTimeCost` | Always null: a subtotal does not establish full recurring or conversion costs |
@@ -294,6 +370,9 @@ HTTP, invalid catalog and pagination failures terminate explicitly.
 network bandwidth, geo-replication transfer, early deletion, features, one-time
 migration/conversion costs, discounts, reservations and taxes are excluded
 explicitly, not set to zero. Never sum line estimates and scenario subtotals.
+Choosing `BlobHns` does not include SFTP hourly feature costs or establish that
+NFS/SFTP supports a proposed tier, redundancy or region; check feature eligibility
+separately.
 The currently selected small subscription is suitable for smoke-checking the
 report, not validating every account type or feature.
 
@@ -307,6 +386,12 @@ above. These choices are planning assumptions, not independently verified
 historical configuration or a complete current-state invoice reconciliation.
 Retail prices support commercial Azure; sovereign-cloud catalogs are outside
 this command's scope.
+
+An October 15 public-only catalog check in East US used synthetic HNS inputs
+(no customer Azure access). All 44 DFS and 40 Blob-HNS supported capacity/index/
+request lines across the four scenarios selected current meters successfully,
+including Hot/Cool/Cold reads/writes and per-100 iterative writes. This checks
+catalog identities/units, not exact billed quantities or every region.
 
 ## Historical capacity for pricing preparation
 
