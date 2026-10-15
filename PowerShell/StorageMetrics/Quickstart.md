@@ -151,7 +151,7 @@ $estimate = @(Get-AzStorageRedundancyCost -Records $recent `
 
 $estimate | Where-Object RecordType -eq 'Scenario' |
     Select-Object StorageAccountName, Redundancy, Currency, PricedSubtotal,
-        Status, UnpricedComponents, ExcludedCharges
+        PricingMode, Status, UnpricedComponents, ExcludedCharges
 ```
 
 The pricing command fetches current public USD retail rates without billing
@@ -164,9 +164,37 @@ Pass typed objects (as above) or imported JSON, **not CSV strings**, to pricing.
 `PricedSubtotal` includes only priced components, not a complete monthly bill.
 Retrieval, bandwidth, geo-replication transfer, early deletion, feature charges,
 migration costs, discounts, reservations and taxes are excluded. Unsupported
-HNS/premium/page-blob inputs, ambiguous tiers and unknown APIs remain unpriced;
+premium/page-blob inputs, ambiguous tiers and unknown APIs remain unpriced;
 some scenarios can be ineligible. Inspect the status and exclusions, not just
 the subtotal. Do not add `Estimate` line costs to `Scenario` subtotals.
+
+For an **ADLS Gen2 account with HNS enabled**, explicitly choose the workload's
+endpoint schedule. Neither command changes the account:
+
+```powershell
+# DFS endpoint (dfs.core.windows.net), for example ABFS analytics workloads.
+$adlsEstimate = @(Get-AzStorageRedundancyCost -Records $recent `
+    -ModelMonth $modelMonth -PricingMode AdlsGen2 -ErrorAction Stop)
+
+# Alternative: Blob endpoint on HNS, including NFS/SFTP workloads.
+$blobHnsEstimate = @(Get-AzStorageRedundancyCost -Records $recent `
+    -ModelMonth $modelMonth -PricingMode BlobHns -ErrorAction Stop)
+```
+
+The default `-PricingMode BlobFlat` still leaves HNS accounts unpriced. Both HNS
+modes require a known HNS-enabled Standard GPv2 account. Choose one schedule for
+the supplied workload; the HNS flag does not identify the endpoint. These are
+alternative estimates, **not additive**. Mixed-endpoint requests need separate,
+reconciled inputs; adding both scenario subtotals would double-count capacity.
+
+Both HNS modes add a separate Hot index-capacity line from `CurrentIndexCapacity`,
+once per account/scenario, without adding it to Blob data capacity. Missing index
+samples or rates stay unpriced, not zero. DFS read/write costs approximate requests:
+ADLS bills transfers in 4-MiB units and recursive/iterative operations can differ
+from request counts. The estimator does not invent size or fan-out multipliers.
+Iterative writes use the catalog's **per-100** rate, not per-10,000.
+Every output row includes `PricingMode` and `BillabilityAssumption`.
+SFTP hourly charges and other feature charges remain excluded.
 
 For a GPv1 projection, `-LegacyTargetTier Hot` explicitly assumes migration to
 GPv2 Hot. `-AssumeFlatNamespace` explicitly assumes flat namespace only when ARM
