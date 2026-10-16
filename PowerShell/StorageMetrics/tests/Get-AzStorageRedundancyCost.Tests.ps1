@@ -1,3 +1,6 @@
+Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+
+InModuleScope StorageMetrics {
 Describe 'Public storage redundancy planning estimate' {
     BeforeEach {
         $script:path = "$PSScriptRoot\..\Get-AzStorageRedundancyCost.ps1"
@@ -85,7 +88,7 @@ Describe 'Public storage redundancy planning estimate' {
                 }
             }
         )
-        Mock Invoke-RestMethod { [pscustomobject]@{ Items = $script:catalog; NextPageLink = $null } }
+        Mock Invoke-RestMethod -ModuleName StorageMetrics { [pscustomobject]@{ Items = $script:catalog; NextPageLink = $null } }
     }
 
     It 'prices identical current capacity independently using graduated public rate bands' {
@@ -95,7 +98,32 @@ Describe 'Public storage redundancy planning estimate' {
         @($capacity | Where-Object { $_.Quantity -ne 2 }).Count | Should Be 0
         @($capacity | Where-Object { $_.EstimatedCost -ne [decimal]0.03 }).Count | Should Be 0
         @($rows | Where-Object RecordType -eq 'Scenario').Count | Should Be 6
-        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It
+        Assert-MockCalled Invoke-RestMethod -ModuleName StorageMetrics -Times 1 -Scope It
+    }
+
+    It 'types estimates and scenarios without adding CSV or JSON columns' {
+        $expected = @'
+RecordType ResourceId StorageAccountName Location CurrentAccountKind CurrentSkuName TargetAccountKind Redundancy
+ModelMonth IsCurrentConfiguration DeltaFromCurrent DeltaFromCurrentReason Component Tier Quantity QuantityUnit GeoType
+QuantityBasis SourceStartTime SourceEndTime CapacitySampleTimeUtc ScaleFactor NamespaceBasis PricingMode
+BillabilityAssumption LegacyTargetTierAssumption Currency ProductName SkuName MeterName MeterId RateUnit RateBandsJson
+PricesObservedAtUtc EstimatedCost PricedSubtotal TotalRecurringCost OneTimeCost Status Message UnpricedComponents ExcludedCharges
+'@
+        Set-StrictMode -Version Latest
+        try {
+            $rows = @(Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09')
+            foreach ($row in $rows) {
+                $row.PSObject.TypeNames[0] | Should Be "StorageMetrics.$($row.RecordType)"
+            }
+            $schema = $rows[0].PSObject.Properties.Name -join ','
+            $schema | Should Be (($expected -split '\s+') -join ',')
+            $rows | Export-Csv "$TestDrive\typed-estimates.csv" -NoTypeInformation
+            $csv = @(Import-Csv "$TestDrive\typed-estimates.csv")
+            $json = @(ConvertTo-Json -InputObject $rows -Depth 6 | ConvertFrom-Json)
+            ($csv[0].PSObject.Properties.Name -join ',') | Should Be $schema
+            ($json[0].PSObject.Properties.Name -join ',') | Should Be $schema
+            $schema | Should Not Match 'PSTypeName'
+        } finally { Set-StrictMode -Off }
     }
 
     It 'supports selecting LRS and RA-GZRS with their documented flat product mappings' {
@@ -199,7 +227,7 @@ Describe 'Public storage redundancy planning estimate' {
         }).Count | Should Be 0
         ($rows | Where-Object { $_.RecordType -eq 'Scenario' -and $_.Redundancy -eq 'LRS' }).ExcludedCharges |
             Should Match 'GeoReplicationTransfer'
-        Assert-MockCalled Invoke-RestMethod -Scope It -Times 1 -ParameterFilter {
+        Assert-MockCalled Invoke-RestMethod -ModuleName StorageMetrics -Scope It -Times 1 -ParameterFilter {
             [uri]::UnescapeDataString($Uri) -match "productName eq 'Storage - Bandwidth'"
         }
     }
@@ -348,9 +376,9 @@ Describe 'Public storage redundancy planning estimate' {
     }
 
     It 'surfaces catalog failures and rejects non-public pagination destinations' {
-        Mock Invoke-RestMethod { throw 'Network unavailable' }
+        Mock Invoke-RestMethod -ModuleName StorageMetrics { throw 'Network unavailable' }
         { Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09' } | Should Throw 'Network unavailable'
-        Mock Invoke-RestMethod { [pscustomobject]@{ Items = @(); NextPageLink = 'https://example.com/api/retail/prices' } }
+        Mock Invoke-RestMethod -ModuleName StorageMetrics { [pscustomobject]@{ Items = @(); NextPageLink = 'https://example.com/api/retail/prices' } }
         { Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09' } | Should Throw 'unexpected pagination'
     }
 
@@ -565,7 +593,7 @@ Describe 'Public storage redundancy planning estimate' {
         $reads.Quantity | Should Be 31000
         $reads.EstimatedCost | Should Be ([decimal]0.062)
         $reads.BillabilityAssumption | Should Match '4 MiB'
-        Assert-MockCalled Invoke-RestMethod -Scope It -Times 1 -ParameterFilter {
+        Assert-MockCalled Invoke-RestMethod -ModuleName StorageMetrics -Scope It -Times 1 -ParameterFilter {
             [uri]::UnescapeDataString($Uri) -match "productName eq 'Azure Data Lake Storage Gen2 Hierarchical Namespace'"
         }
     }
@@ -780,4 +808,5 @@ Describe 'Public storage redundancy planning estimate' {
         $rows = @(Get-AzStorageRedundancyCost -Records $script:records -ModelMonth '2026-09' -WarningAction SilentlyContinue)
         @($rows | Where-Object { $null -ne $_.EstimatedCost -or $null -ne $_.PricedSubtotal }).Count | Should Be 0
     }
+}
 }

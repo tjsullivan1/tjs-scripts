@@ -1,3 +1,9 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Offline Az boundary stubs retain the parameters consumed by Pester mocks.')]
+param()
+
+Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+
+InModuleScope StorageMetrics {
 function Get-AzContext { param([switch]$ListAvailable) }
 function Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
 
@@ -26,10 +32,10 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $script:currentValues = $null
         $script:capacityStatuses = @()
         $script:capacityStatusIndex = 0
-        Mock Get-AzContext {
+        Mock Get-AzContext -ModuleName StorageMetrics {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub; Name = 'Example subscription' } }
         }
-        Mock Invoke-AzRestMethod {
+        Mock Invoke-AzRestMethod -ModuleName StorageMetrics {
             if ($Path -notmatch 'Microsoft.Insights') {
                 return [pscustomobject]@{ StatusCode = 200; Content = (@{
                     kind = 'StorageV2'; sku = @{ name = 'Standard_LRS' }; location = 'eastus'
@@ -107,7 +113,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
                 value = @(@{ name = @{ value = $metric }; unit = 'Bytes'; errorCode = $(if ($script:badMetric) { 'BadArgument' } else { 'Success' }); timeseries = $seriesList })
             } | ConvertTo-Json -Depth 12) }
         }
-        Mock Start-Sleep {}
+        Mock Start-Sleep -ModuleName StorageMetrics {}
     }
 
         It 'reports the latest current capacity sample rather than a historical average' {
@@ -153,6 +159,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $script:capacityFailure = $true
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction SilentlyContinue)
             $failure = $rows | Where-Object RecordType -eq 'CurrentCapacityError'
+            $failure.PSObject.TypeNames[0] | Should Be 'StorageMetrics.CurrentCapacityError'
             $failure.CapacityStatus | Should Be 'Failed'
             $failure.Message | Should Match 'Capacity denied'
             @($rows | Where-Object RecordType -eq 'CurrentCapacity').Count | Should Be 0
@@ -208,7 +215,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop)
             ($rows | Where-Object RecordType -eq 'Capacity').AverageUsedBytes | Should Be 0
             @($rows | Where-Object RecordType -eq 'IndexCapacity').Count | Should Be 0
-            Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=IndexCapacity' }
+            Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=IndexCapacity' }
         }
 
         It 'keeps tier quantities distinct and reconciles their hourly sums' {
@@ -251,10 +258,10 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
                 -IncludeCapacity -MaxRetry 1 -ErrorAction Stop)
             ($rows | Where-Object RecordType -eq 'Capacity').CapacityStatus | Should Be 'CompleteSamples'
-            Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter {
+            Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 3 -Exactly -ParameterFilter {
                 $Path -match 'metricnames=BlobCapacity'
             }
-            Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
+            Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
         }
 
         It 'rejects duplicate timestamps and dimension series' {
@@ -294,7 +301,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
 
         It 'does not collect capacity by default and validates hourly boundaries before requests' {
             Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop | Out-Null
-            Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity|metricnames=IndexCapacity' }
+            Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity|metricnames=IndexCapacity' }
             { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddMinutes(1) -EndTime $script:end -IncludeCapacity } | Should Throw 'whole hours'
         }
     It 'weights hourly samples rather than averaging unequal query chunks' {
@@ -327,7 +334,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $capacity = $rows | Where-Object RecordType -eq 'Capacity'
         $capacity.QueryWindowHours | Should Be 1
         $capacity.AverageUsedBytes | Should Be 300
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 5 -Exactly -ParameterFilter {
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 5 -Exactly -ParameterFilter {
             $Path -match 'metricnames=BlobCapacity' -and $Path -match '%24filter='
         }
     }
@@ -360,4 +367,5 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $capacity[1].ExpectedHours | Should Be 1
         $capacity[0].EndTime | Should Be $capacity[1].StartTime
     }
+}
 }

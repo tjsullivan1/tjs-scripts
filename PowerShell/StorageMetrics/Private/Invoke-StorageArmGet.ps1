@@ -1,5 +1,8 @@
-# Shared retry policy for ARM GET requests in the storage metrics collectors.
 function Invoke-StorageArmGet {
+    <#
+    .SYNOPSIS
+    Sends an ARM GET using a saved context and bounded transient-response retries.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
