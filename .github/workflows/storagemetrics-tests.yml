@@ -1,0 +1,38 @@
+name: Storage Metrics tests
+
+on:
+  push:
+    paths:
+      - 'PowerShell/StorageMetrics/**'
+  pull_request:
+    paths:
+      - 'PowerShell/StorageMetrics/**'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PowerShell modules
+        shell: pwsh
+        run: |
+          Install-Module Pester -RequiredVersion 3.4.0 -SkipPublisherCheck -Force
+          Install-Module PSScriptAnalyzer -SkipPublisherCheck -Force
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -RequiredVersion 3.4.0
+          $r = Invoke-Pester -Script .\PowerShell\StorageMetrics\tests -PassThru
+          if ($r.FailedCount) { throw "$($r.FailedCount) tests failed." }
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Import-Module PSScriptAnalyzer
+          $issues = Invoke-ScriptAnalyzer -Path PowerShell/StorageMetrics -Recurse -Severity Error,Warning -Settings PowerShell/StorageMetrics/PSScriptAnalyzerSettings.psd1
+          if ($issues) {
+            $issues | Format-List
+            throw "$($issues.Count) ScriptAnalyzer issue(s) found."
+          }

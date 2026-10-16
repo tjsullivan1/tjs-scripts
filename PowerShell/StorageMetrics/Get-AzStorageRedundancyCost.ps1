@@ -120,19 +120,19 @@ function Get-AzStorageRedundancyCost {
     function Set-RetailCost {
         param([object]$Line, [object[]]$Catalog, [string[]]$MeterNames, [string]$Unit)
         $Line.RateUnit = $Unit
-        $matches = @($Catalog | Where-Object {
+        $catalogMatches = @($Catalog | Where-Object {
             $_.serviceName -eq 'Storage' -and $_.armRegionName -eq $Line.Location -and
             $_.productName -eq $Line.ProductName -and $_.skuName -eq $Line.SkuName -and
             $_.meterName -in $MeterNames -and $_.unitOfMeasure -eq $Unit -and
             $_.currencyCode -eq 'USD' -and $_.type -eq 'Consumption' -and
             [datetimeoffset]$_.effectiveStartDate -le $priceTime
         })
-        if (-not $matches.Count) { $Line.Status = 'PriceUnavailable'; return }
-        if (@($matches | Group-Object meterId, meterName).Count -ne 1) {
+        if (-not $catalogMatches.Count) { $Line.Status = 'PriceUnavailable'; return }
+        if (@($catalogMatches | Group-Object meterId, meterName).Count -ne 1) {
             $Line.Status = 'AmbiguousPrice'; return
         }
         $bands = @(
-            foreach ($group in ($matches | Group-Object tierMinimumUnits)) {
+            foreach ($group in ($catalogMatches | Group-Object tierMinimumUnits)) {
                 $latest = @($group.Group | Sort-Object { [datetimeoffset]$_.effectiveStartDate } -Descending)
                 $sameDate = @($latest | Where-Object effectiveStartDate -eq $latest[0].effectiveStartDate)
                 if ($sameDate.Count -ne 1) { $Line.Status = 'AmbiguousPrice'; return }

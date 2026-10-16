@@ -396,7 +396,7 @@ and seven-day observed requests, modeled October's 31 days. For demonstration,
 it explicitly selected GPv2 Hot for GPv1 projections and assumed flat namespace
 only where ARM omitted the HNS property. It produced 16 scenario rows and priced
 all supported capacity/read/other-operation inputs. The 22 `Unknown` API
-requests on `samnsigs001` remained unpriced, as did the excluded charges listed
+requests on `account-a` remained unpriced, as did the excluded charges listed
 above. These choices are planning assumptions, not independently verified
 historical configuration or a complete current-state invoice reconciliation.
 Retail prices support commercial Azure; sovereign-cloud catalogs are outside
@@ -648,7 +648,7 @@ The data access route depends on the billing offer:
   `Retry-After` and read every report partition. Exports are another option.
 
 Do not choose the API solely from the subscription's display name or
-`PayAsYouGo` quota label. The live `mnsigs` check returned modern billing data
+`PayAsYouGo` quota label. The live `group-1` check returned modern billing data
 and successfully generated a Cost Details report despite that quota label.
 The script tries only the report API; unsupported offers fail explicitly with
 guidance to provide CSV. It does not silently fall back to the Consumption API.
@@ -948,8 +948,8 @@ so there is nothing to clean up or roll back.
 
 ## Offline verification
 
-The repository has no pre-existing PowerShell test suite. Focused tests use the
-locally available Pester 3.4.0 runner, mock only the Az boundaries, and call the
+The PowerShell test suite uses the locally available Pester 3.4.0 runner, mocks
+only the Az boundaries, and calls the
 public function without credentials or network access:
 
 ```powershell
@@ -1013,10 +1013,10 @@ daily records, and the October period was correctly marked as partial.
 Monthly CSV/JSON artifacts were saved separately from the original daily CSV.
 This was not a full-month live run or a Cost Management reconciliation.
 
-The subsequent full September 2026 live check on four `mnsigs` accounts used
+The subsequent full September 2026 live check on four `group-1` accounts used
 the new Cost Details API mode and returned ten account meters. Observed/billed
-counts matched for `samnsigscontact` Reads (260), Writes (2), List/Create (2)
-and `samnsigs001` Reads (82). `samnsigs001` AllOtherOperations had 92 observed
+counts matched for `account-b` Reads (260), Writes (2), List/Create (2)
+and `account-a` Reads (82). `account-a` AllOtherOperations had 92 observed
 requests versus 2 billed operations; its metric details showed error responses.
 Its 495 authorization-error list requests had no matching billed list meter.
 Capacity, bandwidth and Defender charges were retained separately. No
@@ -1024,7 +1024,7 @@ query-acceleration meters were present.
 The reported selected-account costs totaled `0.003529548 USD`, including the
 non-operation meters. CSV-input comparisons matched the live API results.
 
-The capacity extension was checked live for `samnsigs001` in September 2026.
+The capacity extension was checked live for `account-a` in September 2026.
 It returned Hot/BlockBlob capacity with all 720 expected hourly samples and
 reconciled split/unsplit averages: 9,736,770 bytes. The same run used the saved
 September cost-details CSV and retained 54 daily evidence rows, classifying
@@ -1033,14 +1033,14 @@ This checks one single-tier, non-HNS account; it is not validation of every
 capacity configuration or an independently calculated cost baseline.
 
 The subsequent workload-baseline run collected September capacity and transactions
-for all four selected `mnsigs` accounts, using the saved actual-cost CSV.
-For `samnsigs001`, the sampled estimate was 0.0090680737 GiBMonth versus
+for all four selected `group-1` accounts, using the saved actual-cost CSV.
+For `account-a`, the sampled estimate was 0.0090680737 GiBMonth versus
 0.009360 billed GiBMonth, a -3.1189% quantity difference that remains unexplained.
-`rgmnsigseventsaff2` had complete GPv1 samples labeled `Untiered` and an unlabeled
+`account-d` had complete GPv1 samples labeled `Untiered` and an unlabeled
 `General Block Blob` capacity meter. The GPv1-specific comparison reports
 0.0448656622 sampled GiBMonth versus 0.044640 billed GiBMonth, a +0.5055%
-difference; neither source is assigned to Hot. `sakioocs` and
-`samnsigscontact` had incomplete capacity samples. All unresolved conditions
+difference; neither source is assigned to Hot. `account-c` and `account-b`
+had incomplete capacity samples. All unresolved conditions
 remain explicit instead of yielding a validated baseline. The normalized billing
 rows preserved the original 0.003529548 USD selected-account cost and retained
 unknown/Defender meters. These are quantity diagnostics, not price calculations.
@@ -1050,10 +1050,10 @@ these differences:
 
 | Evidence | Result |
 | --- | --- |
-| `samnsigs001`, independent full-month daily `BlobCapacity` query | All 30 daily averages were 9,736,770 bytes, matching the hourly average. The discrepancy is not explained by daily chunking or unequal averaging. |
+| `account-a`, independent full-month daily `BlobCapacity` query | All 30 daily averages were 9,736,770 bytes, matching the hourly average. The discrepancy is not explained by daily chunking or unequal averaging. |
 | Capacity billing date coverage | Both billed-capacity accounts have 30 dated Usage rows spanning September 1-30. Daily quantities are constant: 0.000312 and 0.001488 GB/Month respectively. Date coverage alone does not establish billing accuracy or completeness. |
-| `sakioocs`, full-month hourly split and unsplit queries | Both still lack numeric samples at September 15 14:00 UTC and September 30 14:00 UTC. Available samples are zero, but missing hours are not inferred to be zero. |
-| `samnsigscontact`, full-month hourly split and unsplit queries | Both still lack a numeric sample at September 25 20:00 UTC. A complete monthly capacity estimate cannot be reconstructed from these metrics. |
+| `account-c`, full-month hourly split and unsplit queries | Both still lack numeric samples at September 15 14:00 UTC and September 30 14:00 UTC. Available samples are zero, but missing hours are not inferred to be zero. |
+| `account-b`, full-month hourly split and unsplit queries | Both still lack a numeric sample at September 25 20:00 UTC. A complete monthly capacity estimate cannot be reconstructed from these metrics. |
 
 The remaining capacity differences cannot be attributed to a specific billing
 rule from this evidence. No correction factor is applied. Resolving them requires
@@ -1066,8 +1066,8 @@ options; a redundancy-only rate change is not sufficient.
 
 A subsequent current-footprint run on October 14 returned reconciled Blob
 capacity samples for all four accounts at 20:00 UTC (about 1.3 hours old):
-48,174,138 bytes for `rgmnsigseventsaff2`, 0 bytes for `sakioocs`, 9,736,770
-bytes for `samnsigs001`, and 282,574 bytes for `samnsigscontact`. The accompanying
+48,174,138 bytes for `account-d`, 0 bytes for `account-c`, 9,736,770
+bytes for `account-a`, and 282,574 bytes for `account-b`. The accompanying
 seven-day October transaction window returned 67 observed requests for
-`samnsigs001` and zero for the other three accounts. These are current samples
+`account-a` and zero for the other three accounts. These are current samples
 and recent observed counts, not extrapolated monthly costs.
