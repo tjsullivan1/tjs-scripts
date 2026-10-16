@@ -16,8 +16,7 @@ Import-Module Az.Accounts
 Connect-AzAccount -Tenant '<tenant-id>' -Subscription '<subscription-id>'
 Get-AzContext -ListAvailable
 
-. .\PowerShell\StorageMetrics\Get-AzStorageTransactionMetric.ps1
-. .\PowerShell\StorageMetrics\Get-AzStorageRedundancyCost.ps1
+Import-Module .\PowerShell\StorageMetrics\StorageMetrics.psd1
 
 $accountId = '/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.Storage/storageAccounts/<account-name>'
 ```
@@ -25,6 +24,22 @@ $accountId = '/subscriptions/<subscription-id>/resourceGroups/<resource-group>/p
 Copy the account's full **Resource ID** from the Azure portal's Properties page.
 Use the account ID, not its URL or a `/blobServices/default` child ID.
 The scripts do not discover accounts or sign in for you.
+
+The module exports only `Get-AzStorageTransactionMetric` and
+`Get-AzStorageRedundancyCost`. Existing dot-source commands for either `.ps1`
+entry point still work: both are thin shims that import this same module.
+Keep the entire `StorageMetrics` directory together, including `Public`,
+`Private`, `Data` and `StorageMetrics.format.ps1xml`.
+
+Records have compact default table views. Their `StorageMetrics.<RecordType>`
+type names are display metadata, not additional CSV/JSON fields. Export the
+original objects, never `Format-Table` output. See
+[Record types and statuses](StorageTransactionMetrics.md#record-types-and-statuses)
+before aggregating. Pricing policy version `1.0.0` lives in
+`Data\StoragePricingPolicy.psd1`; each table records its source and retrieval
+date. It is loaded once at module import; after a reviewed policy update, use
+`Import-Module .\PowerShell\StorageMetrics\StorageMetrics.psd1 -Force` to reload.
+Retail rates are still fetched live, not stored in the policy file.
 
 Have exactly **one saved Az context per subscription** you will query.
 Inspect `Get-AzContext -ListAvailable`; missing or duplicate contexts fail

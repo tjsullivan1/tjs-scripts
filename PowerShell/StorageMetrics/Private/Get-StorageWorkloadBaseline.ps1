@@ -1,5 +1,3 @@
-#Requires -Version 7.0
-
 function Get-StorageWorkloadBaseline {
     <#
     .SYNOPSIS

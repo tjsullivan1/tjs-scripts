@@ -1,3 +1,9 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Offline Az boundary stubs retain the parameters consumed by Pester mocks.')]
+param()
+
+Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+
+InModuleScope StorageMetrics {
 # Az commands are external boundaries; these stubs allow offline mocking.
 function Get-AzContext { param([switch]$ListAvailable) }
 function Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
@@ -29,10 +35,11 @@ Describe 'Get-AzStorageTransactionMetric' {
         $script:splitCalls = 0
         $script:failSecondChunk = $false
         $script:missingSecondChunk = $false
-        Mock Get-AzContext {
+        Mock Start-Sleep -ModuleName StorageMetrics {}
+        Mock Get-AzContext -ModuleName StorageMetrics {
             $script:contexts
         }
-        Mock Invoke-AzRestMethod {
+        Mock Invoke-AzRestMethod -ModuleName StorageMetrics {
             if ($script:httpFailure) { return [pscustomobject]@{ StatusCode = 403; Content = 'Forbidden' } }
             if ($script:badAccount -and $Path -match '/badaccount[/?]') { throw 'Account denied' }
             if ($Path -notmatch 'Microsoft.Insights') {
@@ -94,7 +101,64 @@ Describe 'Get-AzStorageTransactionMetric' {
             } | ConvertTo-Json -Depth 15) }
         }
     }
-    Mock Start-Sleep {}
+
+    It 'adds a display type without adding exported properties' {
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        foreach ($row in $rows) {
+            $row.PSObject.TypeNames[0] | Should Be "StorageMetrics.$($row.RecordType)"
+            @($row.PSObject.Properties.Name | Where-Object { $_ -in @('PSTypeName', 'PSTypeNames') }).Count | Should Be 0
+        }
+    }
+
+    It 'keeps the established ordered collector export schema' {
+        $expected = @'
+RecordType SubscriptionId SubscriptionName ResourceGroupName StorageAccountName ResourceId MetricResourceId
+Location AccountKind SkuName IsHnsEnabled AccountDefaultAccessTier PrimaryLocation SecondaryLocation IsSftpEnabled
+IsNfsV3Enabled ConfigurationObservedAtUtc ConfigurationHistoryStatus StartTime EndTime SummaryPeriod Month
+IsPartialMonth Category ApiName ResponseType Tier GeoType Authentication TransactionType RequestCount CountStatus
+CompletenessStatus MappingStatus QueryAccelerationDataScannedBytes QueryAccelerationDataReturnedBytes
+QueryAccelerationStatus QueryWindowHours Message BilledQuantity UnitOfMeasure BilledOperationCount
+RequestMinusBilledCount ActualCost Currency MeterId MeterName MeterSubCategory ProductName ChargeType CostSource
+ComparisonStatus MetricName BlobType AverageUsedBytes AverageObservedBytes ObservedByteHours ExpectedHours
+ObservedHours MissingHours CapacityStatus CapacityReconciliationStatus QuantityBasis BillingUsageDate MeterRegion
+BillingResourceLocation MeterCategory ConsumedService PublisherType ProductId PricingModel ReservationId BenefitId
+EffectivePrice UnitPrice PayGPrice PricingCurrency ExchangeRatePricingToBilling ChargeFrequency CostAllocationRuleName
+InvoiceId BillingPeriodStartDate BillingPeriodEndDate ServicePeriodStartDate ServicePeriodEndDate BillingCoverageStatus
+BillingTier BillingRedundancy BillingQuantityKind NormalizedBilledQuantity NormalizedBilledUnit BillingMappingStatus
+HasNegativeUsageQuantity SourceRecordType QuantityKind Quantity QuantityUnit QuantitySource QuantityStatus
+ObservedCapacityGiBMonth BilledCapacityGiBMonth CapacityDifferenceGiBMonth CapacityDifferencePercent CapacityTierBasis
+CurrentUsedBytes CurrentUsedGiB CapacitySampleTimeUtc CapacitySampleAgeHours
+'@
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end)
+        ($rows[0].PSObject.Properties.Name -join ',') | Should Be (($expected -split '\s+') -join ',')
+    }
+
+    It 'uses the imported policy across repeated calls without rereading its data file' {
+        Mock Import-PowerShellDataFile -ModuleName StorageMetrics { throw 'Unexpected policy reload' }
+        $first = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        $script:operations = @(@{ Api = 'PutBlob'; Total = 5; Response = 'Success'; Tier = 'Hot' })
+        $script:unsplit = 5
+        $second = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
+        ($first | Where-Object RecordType -eq 'Detail').Category | Should Be 'Reads'
+        ($second | Where-Object RecordType -eq 'Detail').Category | Should Be 'Writes'
+        ($second | Where-Object RecordType -eq 'Detail').RequestCount | Should Be 5
+        Assert-MockCalled Import-PowerShellDataFile -ModuleName StorageMetrics -Scope It -Times 0
+    }
+
+    It 'preserves null optional identity metadata when the saved context omits it' {
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end)
+        ($null -eq $rows[0].SubscriptionName) | Should Be $true
+    }
+
+    It 'preserves known subscription identity and unknown configuration on account read failures' {
+        $script:contexts[0].Subscription.Name = 'Known subscription'
+        $script:httpFailure = $true
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction SilentlyContinue)
+        $rows.Count | Should Be 1
+        $rows[0].SubscriptionName | Should Be 'Known subscription'
+        ($null -eq $rows[0].ConfigurationObservedAtUtc) | Should Be $true
+        $rows[0].PSObject.TypeNames[0] | Should Be 'StorageMetrics.Error'
+    }
 
     It 'returns a measured read summary and auditable dimensions' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
@@ -108,7 +172,7 @@ Describe 'Get-AzStorageTransactionMetric' {
 
     It 'sends UTC Z timestamps so form decoding cannot replace offset plus signs with spaces' {
         Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop | Out-Null
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 2 -Exactly -ParameterFilter {
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 2 -Exactly -ParameterFilter {
             $Path -match 'Microsoft.Insights' -and
             [uri]::UnescapeDataString($Path) -match 'timespan=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/' -and
             [uri]::UnescapeDataString($Path) -notmatch '\+00:00'
@@ -200,7 +264,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         ($null -eq $rows[0].QueryAccelerationDataScannedBytes) | Should Be $true
         ($null -eq $rows[0].QueryAccelerationDataReturnedBytes) | Should Be $true
         $rows[0].QueryAccelerationStatus | Should Be 'UnavailableInPlatformMetrics'
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter { $Path -match 'Ingress|Egress|QueryAcceleration' }
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'Ingress|Egress|QueryAcceleration' }
     }
 
     It 'distinguishes a genuine zero from missing data' {
@@ -298,9 +362,9 @@ Describe 'Get-AzStorageTransactionMetric' {
         $script:responseStatuses = @(429, 200)
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop)
         ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
-        Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly
-        Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 3 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly
+        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
     }
 
     It 'retries all supported server errors with exponential jitter when Retry-After is absent' {
@@ -308,8 +372,8 @@ Describe 'Get-AzStorageTransactionMetric' {
         $script:includeRetryAfter = $false
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop)
         ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 6 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
-        Assert-MockCalled Start-Sleep -Scope It -Times 4 -Exactly -ParameterFilter { $Seconds -gt 0 }
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 6 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 4 -Exactly -ParameterFilter { $Seconds -gt 0 }
     }
 
     It 'stops retrying repeated throttling and emits one account error' {
@@ -319,16 +383,16 @@ Describe 'Get-AzStorageTransactionMetric' {
         $rows.Count | Should Be 1
         $rows[0].RecordType | Should Be 'Error'
         $rows[0].Message | Should Match '429'
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
-        Assert-MockCalled Start-Sleep -Scope It -Times 2 -Exactly
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 3 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 2 -Exactly
     }
 
     It 'does not retry a forbidden request' {
         $script:responseStatuses = @(403)
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
             Should Throw '403'
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 1 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
-        Assert-MockCalled Start-Sleep -Scope It -Times 0
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 0
     }
 
     It 'rejects recent data before making requests unless explicitly allowed' {
@@ -337,7 +401,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         $script:start = $script:end.AddHours(-1)
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end } |
             Should Throw 'three hours'
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -AllowRecentData -ErrorAction Stop)
         ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
     }
@@ -349,7 +413,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         $total = $rows | Where-Object RecordType -eq 'AccountTotal'
         $total.RequestCount | Should Be 3
         $total.QueryWindowHours | Should Be 4
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 1 -Exactly -ParameterFilter {
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter {
             $Path -match 'Microsoft.Insights' -and $Path -match 'top=10000'
         }
     }
@@ -362,7 +426,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
         $totals.Count | Should Be 4
         @($totals | Where-Object QueryWindowHours -ne 1).Count | Should Be 0
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 7 -Exactly -ParameterFilter {
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 7 -Exactly -ParameterFilter {
             $Path -match 'Microsoft.Insights' -and $Path -match 'top=10000'
         }
     }
@@ -451,10 +515,10 @@ Describe 'Get-AzStorageTransactionMetric' {
         $second = $script:id.Replace($script:subscription, $secondSubscription)
         $rows = @(@($script:id, $second, $script:id) | Get-AzStorageTransactionMetric -StartTime $script:start -EndTime $script:end -ErrorAction Stop)
         @($rows | Where-Object RecordType -eq 'AccountTotal').Count | Should Be 2
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter {
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 3 -Exactly -ParameterFilter {
             $Path -match '/subscriptions/22222222-' -and $DefaultProfile.Subscription.Id -eq '22222222-2222-2222-2222-222222222222'
         }
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter {
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter {
             $Path -match 'Microsoft.Insights' -and $Path -notmatch '/blobServices/default/'
         }
     }
@@ -478,7 +542,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         $totals.Count | Should Be 2
         $totals[0].EndTime | Should Be $totals[1].StartTime
         $totals[1].EndTime | Should Be $script:end.ToString('o')
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 2 -Exactly -ParameterFilter {
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 2 -Exactly -ParameterFilter {
             $Path -match 'aggregation=Total&interval=FULL' -and $Path -match 'top=10000'
         }
     }
@@ -497,7 +561,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         $total.EndTime | Should Be $script:end.ToString('o')
         ($rows | Where-Object RecordType -eq 'Detail').RequestCount | Should Be 9
         ($rows | Where-Object Category -eq 'Reads' | Where-Object RecordType -eq 'Summary').RequestCount | Should Be 9
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 6 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 6 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
     }
 
     It 'splits queries at UTC month boundaries even when ChunkHours would cross them' {
@@ -513,7 +577,7 @@ Describe 'Get-AzStorageTransactionMetric' {
         $totals[1].StartTime | Should Be $boundary.ToString('o')
         $totals[0].RequestCount | Should Be 3
         $totals[1].RequestCount | Should Be 3
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 4 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 4 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
     }
 
     It 'marks a complete calendar month and excludes the next month at an exclusive end' {
@@ -613,4 +677,5 @@ Describe 'Get-AzStorageTransactionMetric' {
         }
         $rejected | Should Be $true
     }
+}
 }

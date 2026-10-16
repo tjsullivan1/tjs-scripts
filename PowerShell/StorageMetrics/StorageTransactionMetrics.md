@@ -10,6 +10,36 @@ downstream scripts. It does not calculate prices. Cost Management comparisons
 are optional; normal collection makes no billing requests.
 Results default to **UTC calendar-month totals** per account and category.
 
+## Module layout and policy data
+
+Import the module directly, or keep using either documented dot-source entry
+point; both `.ps1` files now only import the same module:
+
+```powershell
+Import-Module .\PowerShell\StorageMetrics\StorageMetrics.psd1
+```
+
+Only `Get-AzStorageTransactionMetric` and `Get-AzStorageRedundancyCost` are
+exported. Public command bodies live in `Public`; helpers in `Private` receive
+their account metadata, windows, contexts, retry settings and policy as explicit
+parameters rather than reading a caller's local variables.
+Keep the entire directory together when copying the module.
+
+`Data\StoragePricingPolicy.psd1` version `1.0.0` contains the Blob/Data Lake API
+groups, GPv1 overrides, meter categories, operation multipliers, quantity kinds
+and units, and retail product names per pricing mode. Every table has a `Source`
+URL and `RetrievedOn` date; the dates describe the evidence already used by the
+collector, not a new live verification. The module imports this data and builds
+its API maps once, not once per account or call. Review policy changes against
+their sources, increment `PolicyVersion`, and reimport with `-Force` to reload.
+This is classification policy, not a price list: retail rates remain live.
+
+`StorageMetrics.format.ps1xml` supplies a compact default table for every
+`StorageMetrics.<RecordType>` type. `PSTypeNames` metadata does not add a
+property, alter field order, or change the flat CSV/JSON schema. Formatting is
+for display only; export the original objects rather than `Format-Table` output.
+Use `Select-Object *` or `Format-List *` to inspect all fields.
+
 ## Scope and prerequisites
 
 This collector queries only `Microsoft.Storage/storageAccounts/blobServices/default`.
@@ -166,6 +196,123 @@ CSV represents null as an empty cell; JSON preserves `null` explicitly.
 To see just the total transactions per account/month, filter
 `$results | Where-Object RecordType -eq 'AccountTotal'`. Do not add category
 summaries to those totals.
+
+## Record types and statuses
+
+The tables below cover both exported commands. A type's display name is
+`StorageMetrics.` followed by its `RecordType`. **Sum** refers to the associated
+numeric values, never to the status strings themselves. Always filter one
+record type, nonoverlapping periods and compatible account/tier/unit/currency/
+charge contexts first. Null stays unknown, not zero. A copied record can retain
+source statuses; check the status for the quantity actually being used.
+
+| `RecordType` | Meaning | Can be summed? |
+| --- | --- | --- |
+| `AccountTotal` | Unsplit observed Blob-service requests | Request counts across disjoint periods/accounts only when reconciled; overlaps Summary/Detail |
+| `Summary` | Observed requests per operation category | Reconciled counts only; overlaps AccountTotal/Detail |
+| `Detail` | Observed requests per API/response/tier/geo/authentication/type | Reconciled counts only; overlaps AccountTotal/Summary |
+| `Error` | Transaction/account collection failed; buffered chunks discarded | No |
+| `Capacity` | Historical hourly sampled Blob capacity per tier/blob type | Complete same-period split averages can be added; never add averages across time |
+| `CapacityAccountTotal` | Unsplit historical Blob capacity | Same-period independent accounts only; overlaps Capacity |
+| `IndexCapacity` | Separate historical HNS index capacity | Complete same-period averages only; not part of the Blob total |
+| `CapacityError` | Historical capacity collection failed | No |
+| `CurrentCapacity` | Latest common reconciled Blob sample per tier/type | Same-snapshot split capacity only; never across snapshot times |
+| `CurrentCapacityAccountTotal` | Unsplit overlapping current Blob sample | Independent accounts at comparable times only; not with CurrentCapacity |
+| `CurrentIndexCapacity` | Separate latest HNS index sample | Separate component at a comparable time; not part of the Blob total |
+| `CurrentCapacityError` | Current capacity collection failed | No |
+| `CostMeter` | Matched billing usage/charges grouped by meter and billing context | Actual costs in the same currency/charge context; verified compatible quantities separately |
+| `CostDetail` | Original matched daily billing evidence | As an alternative to CostMeter, never in addition |
+| `CostComparison` | Observed category requests versus reported billed operations | Diagnostics only; counts/costs overlap source rows |
+| `CostError` | Billing retrieval/import failed for an account/month | No |
+| `Workload` | Normalized observed requests or sampled used capacity | One quantity kind/unit and valid status only; overlaps Detail/Capacity/IndexCapacity |
+| `BilledWorkload` | Normalized billing-derived quantity, not independent telemetry | Compatible verified quantities only; overlaps CostMeter |
+| `CapacityComparison` | Sampled used versus billed capacity diagnostics | No; do not sum percentages or overlapping source quantities |
+| `Estimate` | One priced or unpriced scenario component | Non-null EstimatedCost within one account/scenario/currency; not across alternative scenarios |
+| `Scenario` | Partial subtotal and optional delta from current redundancy | Independent accounts for the same scenario/currency/component basis only; not with Estimate |
+
+| Field and value | Meaning | Can associated values be summed? |
+| --- | --- | --- |
+| `ConfigurationHistoryStatus = CurrentSnapshotOnly` | ARM configuration is today's snapshot, not historical reconstruction | Not a quantity-validity guarantee |
+| `CountStatus = Observed` | Numeric request total, including genuine zero | Only with Reconciled completeness |
+| `CountStatus = MissingData` | Missing numeric total; remains null | No |
+| `CountStatus = Failed` | Collection failed | No |
+| `CompletenessStatus = Reconciled` | Split and unsplit request totals agree | Observed counts on one record type only |
+| `CompletenessStatus = UnverifiableMissingData` | Missing request totals prevent verification | No complete-period aggregation |
+| `CompletenessStatus = Failed` | Collection failed | No |
+| `CompletenessStatus = CompleteSamples` | All required historical hours and reconciliation present | Same-period capacity splits only |
+| `CompletenessStatus = IncompleteSamples` | Missing historical hours or reconciliation | No complete-period average |
+| `CompletenessStatus = SnapshotNotMonthlyCoverage` | Current sample is not monthly coverage | Snapshot values only, not monthly averages |
+| `CompletenessStatus = ReportPartitionsRead` | All manifest partitions read; billing finality not established | Billing sums subject to coverage/context limits |
+| `CompletenessStatus = CsvCoverageUnverified` | CSV completeness cannot be established | Supplied billing sums only; not proof of complete billing |
+| `CompletenessStatus = NotBillingValidation` | Capacity comparison is a diagnostic | No additional additive quantity |
+| `MappingStatus = Documented` | Exact logged API appears in the applicable documented column | Reconciled observed requests only, not billable operations |
+| `MappingStatus = DocumentedFree` | API is in the documented free category | Observed requests only; do not price as paid operations |
+| `MappingStatus = UnknownApi` | No exact policy mapping | Observed requests remain countable under Unmapped, not priceable |
+| `MappingStatus = AmbiguousTierChangeOrBatch` | SetBlobTier cannot be safely classified from these dimensions | Observed requests only, not priceable |
+| `MappingStatus = UnsupportedAccount` | No documented account column selected | Observed requests only, not priceable |
+| `QueryAccelerationStatus = UnavailableInPlatformMetrics` | Scanned/returned bytes are not supplied by these metrics | No; both quantities stay null |
+| `CapacityStatus = CompleteSamples` | Complete historical sample coverage | Same-period split averages only |
+| `CapacityStatus = IncompleteSamples` | Partial observations; full average stays null | No full-period sum; available-hour evidence is diagnostic |
+| `CapacityStatus = LatestReconciledSample` | Latest common reconciled Blob sample selected | Same-snapshot splits only |
+| `CapacityStatus = LatestSample` | Latest independent HNS index sample selected | Separate comparable-time index component only |
+| `CapacityStatus = Unavailable` | No usable current sample in the search window | No |
+| `CapacityStatus = Failed` | Historical/current capacity query failed | No |
+| `CapacityReconciliationStatus = ReconciledSamples` | Historical Blob split/total samples reconcile | Only with complete sample coverage |
+| `CapacityReconciliationStatus = ReconciledSample` | Selected current Blob sample reconciles | Same-snapshot splits only |
+| `CapacityReconciliationStatus = MissingSamples` | Missing samples prevent Blob verification | No verified capacity aggregation |
+| `CapacityReconciliationStatus = NotApplicable` | Independent HNS index has no Blob split/total reconciliation | Use its own CapacityStatus |
+| `BillingCoverageStatus = ReportPartitionsRead` | Every API report partition was read | Same-context reported costs only; not invoice finality |
+| `BillingCoverageStatus = CsvCoverageUnverified` | Caller-supplied CSV coverage is unverified | Same-context supplied costs only |
+| `BillingMappingStatus = Unclassified` | Meter quantity has no supported classification | Raw ActualCost only; no normalized quantity |
+| `BillingMappingStatus = VerifiedOperationUnit` | Exact operation meter and unit multiplier recognized | Billed operations in compatible contexts only |
+| `BillingMappingStatus = VerifiedMeterUnit` | Recognized non-operation meter/unit normalized | Same quantity kind/unit/context only |
+| `BillingMappingStatus = UnverifiedUnit` | Meter unit is not recognized | ActualCost only, not normalized quantity |
+| `BillingMappingStatus = UnmappedOperationMeter` | Operation-like meter has no exact category | ActualCost only, not normalized operations |
+| `BillingMappingStatus = NonUsageCharge` | Refund/purchase/other non-Usage charge | ActualCost with charge type separate; normalized quantity stays null |
+| `ComparisonStatus = NotOperationMeter` | Meter is not a classified operation meter | Raw cost only; inspect BillingMappingStatus for quantities |
+| `ComparisonStatus = VerifiedOperationUnit` | Operation meter has a supported multiplier | Source billed quantity only, never add comparison rows |
+| `ComparisonStatus = UnverifiedUnit` | At least one required meter unit is unsupported | No comparison quantity/delta; raw cost may still be usable |
+| `ComparisonStatus = UnmappedOperationMeter` | No exact operation-category mapping | No operation comparison |
+| `ComparisonStatus = NonUsageCharge` | Charge is not Usage | Costs separately by charge type only |
+| `ComparisonStatus = NoMatchingBillingMeter` | No matching usage meter; absence is not zero | No billed comparison sum |
+| `ComparisonStatus = MetricsIncomplete` | Required reconciled requests/complete capacity unavailable | No comparison delta |
+| `ComparisonStatus = CountsMatch` | Observed requests equal normalized billed operations | Diagnostic only, not proof of billability or coverage |
+| `ComparisonStatus = CountsDiffer` | Observed requests differ from normalized billed operations | Diagnostic only |
+| `ComparisonStatus = QuantitiesMatch` | Sampled used capacity equals normalized billed capacity | Diagnostic only, not billing validation |
+| `ComparisonStatus = QuantitiesDiffer` | Sampled used and billed capacities differ | Diagnostic only |
+| `ComparisonStatus = AmbiguousBillingContext` | Multiple currency/region/redundancy contexts prevent combination | No |
+| `ComparisonStatus = BillingAdjustmentsPresent` | Negative usage quantities require review | No normalized baseline/delta |
+| `ComparisonStatus = UnsupportedBlobType` | Capacity includes an unsupported blob type | No comparable observed capacity |
+| `ComparisonStatus = TierUnresolved` | Historical tier cannot be assigned without guessing | No tier capacity comparison |
+| `ComparisonStatus = MetricsFailed` | Historical capacity collection failed | No |
+| `ComparisonStatus = BillingUnavailable` | Billing retrieval/import failed | No |
+| `ComparisonStatus = Failed` | Cost comparison failed | No |
+| `QuantityStatus = ObservedRequestsNotBillable` | Measured requests, not guaranteed billed operations | Reconciled request quantities only |
+| `QuantityStatus = DocumentedFreeRequests` | Measured requests in a documented free category | Request counts only, not paid operations |
+| `QuantityStatus = UnmappedRequests` | Measured requests lacking a supported category | Request counts only, not priceable |
+| `QuantityStatus = MissingData` | Normalized observed quantity remains null | No |
+| `QuantityStatus = CompleteSampleEstimate` | Complete sampled capacity normalized to binary GiBMonth | Compatible same-period splits only |
+| `QuantityStatus = BillingDerived` | Normalized reported Usage quantity, not an independent measurement | Same kind/unit/context only; source billing overlaps |
+| `QuantityStatus = BillingAdjustmentsPresent` | Negative usage adjustment prevents baseline quantity | No |
+| `QuantityStatus = ComparisonOnly` | Capacity comparison has no additive Quantity | No |
+| `QuantityStatus = Unclassified` | Inherited unmapped billing quantity status | No normalized quantity |
+| `QuantityStatus = UnverifiedUnit` | Inherited unsupported billing unit status | No normalized quantity |
+| `QuantityStatus = UnmappedOperationMeter` | Inherited unknown operation-meter status | No normalized quantity |
+| `QuantityStatus = NonUsageCharge` | Inherited non-Usage billing status | No normalized quantity |
+| `Status = PlanningEstimate` | Current exact catalog identity/rate bands priced this line | EstimatedCost within the same scenario only |
+| `Status = DocumentedFree` | Documented free requests have explicit zero estimated cost | Same-scenario cost only |
+| `Status = PriceUnavailable` | Exact eligible catalog rate unavailable | No; null is not free |
+| `Status = AmbiguousPrice` | Multiple meter identities or duplicate effective bands | No |
+| `Status = UnsupportedConfiguration` | Unsupported namespace/account/performance/blob configuration | No |
+| `Status = TierUnresolved` | Current tier cannot be assigned safely | No |
+| `Status = IneligibleArchive` | Archive cannot be retained under this zonal scenario | No |
+| `Status = CapacityUnavailable` | Required current capacity sample unavailable | No |
+| `Status = UnsupportedRequests` | Request category/tier/endpoint cannot be priced | No |
+| `Status = RequestsUnavailable` | No usable reconciled observed request window | No |
+| `Status = IneligibleSecondaryReads` | Non-RA target cannot preserve secondary reads | No |
+| `Status = PartialEstimate` | Scenario subtotal excludes unsupported and explicitly omitted charges | Comparable partial subtotals only, not full bills |
+| `Status = Ineligible` | At least one scenario component is ineligible | Do not rank as a viable complete scenario |
+| Any `*Status = null` | Status not populated/applicable on this record type | No independent evidence; use the relevant populated status |
 
 ## Current footprint and recent workload
 
@@ -477,7 +624,7 @@ catalog identities/units, not exact billed quantities or every region.
 ## Historical capacity for pricing preparation
 
 Add `-IncludeCapacity` to collect used capacity for the same historical range.
-Keep `StorageCapacityMetrics.ps1` beside the main script. The same Az contexts,
+Capacity helpers are private module files. The same Az contexts,
 management-plane RBAC and 93-day retention limit apply. This mode requires
 whole-hour start/end boundaries; ordinary transaction collection still accepts
 whole minutes.
@@ -549,7 +696,7 @@ Use `-IncludeWorkloadBaseline` with an explicit billing source
 and capacity comparisons. It automatically includes transaction Detail and
 capacity collection, so pricing dimensions cannot be lost by forgetting those
 switches. It requires completed UTC calendar months with `SummaryPeriod Month`.
-Keep `StorageWorkloadBaseline.ps1` beside the main script.
+Workload helpers are private module files loaded at import.
 
 ```powershell
 $results = @($ids | Get-AzStorageTransactionMetric `
@@ -652,9 +799,8 @@ No percentage threshold is used to declare a baseline validated.
 Use `-IncludeCostComparison` for a live **actual-cost** report, or
 `-CostDetailsCsv` for existing actual-cost usage-details CSV files. Both retain
 the Monitor records and append separate billing/comparison records. CSV input
-takes precedence if both parameters are specified. Keep
-`StorageTransactionCostComparison.ps1` beside the main script; it is loaded
-only when comparison is requested.
+takes precedence if both parameters are specified. Billing helpers are private
+module files loaded at import; no billing calls occur unless requested.
 
 Comparisons require completed UTC calendar months and `-SummaryPeriod Month`.
 The same 93-day Monitor retention limit applies. Each month is queried
@@ -1017,9 +1163,10 @@ up or roll back.
 
 ## Offline verification
 
-The PowerShell test suite uses the locally available Pester 3.4.0 runner, mocks
-only the Az boundaries, and calls the
-public function without credentials or network access:
+The PowerShell test suite uses the Pester 3.4.0 runner, mocks external Az,
+retail/report-download and delay boundaries, and calls the public commands
+without credentials or network access. Module-scoped Pester fixtures keep these
+boundary mocks in the commands' session state; helpers are not mocked:
 
 ```powershell
 Import-Module Pester -RequiredVersion 3.4.0
@@ -1055,6 +1202,20 @@ Workload baseline tests use the public collector to cover binary capacity units,
 HNS index separation, request dimensions and billability, missing/zero quantities,
 unknown tiers/units/meters, billing contexts and corrections, source failures,
 month/account isolation, opt-in behavior and CSV/JSON output.
+Module tests cover the two-command export surface, legacy shims, private helper
+visibility and a compact table for all 21 record types. Public-command tests
+also lock the established property names/order, typed optional records and
+unchanged strict-mode CSV/JSON exports, null metadata on failures and policy
+reuse across calls.
+
+Run ScriptAnalyzer separately from the Pester process:
+
+```powershell
+$issues = @(Invoke-ScriptAnalyzer -Path .\PowerShell\StorageMetrics -Recurse `
+    -Settings .\PowerShell\StorageMetrics\PSScriptAnalyzerSettings.psd1)
+if ($issues.Count) { $issues; throw 'ScriptAnalyzer reported issues.' }
+git diff --check
+```
 
 ## Remaining pricing-model gaps
 

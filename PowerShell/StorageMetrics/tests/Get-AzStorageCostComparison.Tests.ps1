@@ -1,3 +1,9 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Offline Az boundary stubs retain the parameters consumed by Pester mocks.')]
+param()
+
+Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+
+InModuleScope StorageMetrics {
 function Get-AzContext { param([switch]$ListAvailable) }
 function Invoke-AzRestMethod { param($Path, $Uri, $Method, $Payload, $DefaultProfile) }
 
@@ -29,13 +35,13 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:pendingPolls = 0
         $script:retryAfter = '1'
         $script:badManifest = $false
-        Mock Get-AzContext {
+        Mock Get-AzContext -ModuleName StorageMetrics {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub }; Environment = @{
                 ResourceManagerUrl = 'https://management.azure.com/'
                 StorageEndpointSuffix = 'core.windows.net'
             } }
         }
-        Mock Invoke-AzRestMethod {
+        Mock Invoke-AzRestMethod -ModuleName StorageMetrics {
             if ($Path -match 'generateCostDetailsReport') {
                 $script:reportCalls++
                 if ($script:reportFailure) { return [pscustomobject]@{StatusCode=403;Content='Denied'} }
@@ -76,8 +82,8 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
                 value=@(@{name=@{value='Transactions'};unit='Count';errorCode='Success';timeseries=@($series)})
             } | ConvertTo-Json -Depth 10)}
         }
-        Mock Start-Sleep {}
-        Mock Invoke-WebRequest {
+        Mock Start-Sleep -ModuleName StorageMetrics {}
+        Mock Invoke-WebRequest -ModuleName StorageMetrics {
             $script:downloadCalls++
             if ($script:downloadFailure) { throw 'Download failed: https://reports.blob.core.windows.net/private.csv?sig=secret' }
             $script:costRows | Export-Csv -LiteralPath $OutFile -NoTypeInformation
@@ -107,7 +113,7 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $comparison.CostSource | Should Be 'CostDetailsApi'
         $script:reportCalls | Should Be 1
         $script:downloadCalls | Should Be 2
-        Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 1 }
+        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 1 }
     }
 
     It 'does not compare Defender transactions with Blob operations' {
@@ -245,7 +251,7 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start `
             -EndTime $script:end -IncludeCostComparison -CostReportTimeoutMinutes 20 -ErrorAction Stop)
         @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
-        Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 601 }
+        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 601 }
     }
 
     It 'uses a ten-minute Cost Details polling timeout by default' {
@@ -466,4 +472,5 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $meter.NormalizedBilledUnit | Should Be 'BillingGB'
         $meter.NormalizedBilledQuantity | Should Be 0.0003
     }
+}
 }

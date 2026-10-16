@@ -1,3 +1,9 @@
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Offline Az boundary stubs retain the parameters consumed by Pester mocks.')]
+param()
+
+Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+
+InModuleScope StorageMetrics {
 function Get-AzContext { param([switch]$ListAvailable) }
 function Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
 
@@ -29,10 +35,10 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:accountKind = 'StorageV2'
         $script:skuName = 'Standard_LRS'
         $script:ops = @(@{ Api = 'GetBlob'; Tier = 'Hot'; Response = 'Success'; Count = 3 })
-        Mock Get-AzContext {
+        Mock Get-AzContext -ModuleName StorageMetrics {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub; Name = 'Example' } }
         }
-        Mock Invoke-AzRestMethod {
+        Mock Invoke-AzRestMethod -ModuleName StorageMetrics {
             if ($Path -notmatch 'Microsoft.Insights') {
                 return [pscustomobject]@{ StatusCode = 200; Content = (@{
                     kind = $script:accountKind; sku = @{ name = $script:skuName }; location = 'eastus'
@@ -110,6 +116,33 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $comparison.BillingCoverageStatus | Should Be 'CsvCoverageUnverified'
         @($rows | Where-Object RecordType -eq 'Detail').Count | Should Be 1
         @($rows | Where-Object RecordType -eq 'CapacityAccountTotal').Count | Should Be 1
+    }
+
+    It 'types optional records without changing their flat CSV or JSON schema in strict mode' {
+        $script:hns = $true
+        $script:costRows | Export-Csv $script:csv -NoTypeInformation
+        Set-StrictMode -Version Latest
+        try {
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+                -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -IncludeCostDetail -IncludeCurrentCapacity -ErrorAction Stop)
+            foreach ($type in @('AccountTotal', 'Summary', 'Detail', 'Capacity', 'CapacityAccountTotal',
+                    'IndexCapacity', 'CurrentCapacity', 'CurrentCapacityAccountTotal', 'CurrentIndexCapacity',
+                    'CostMeter', 'CostDetail', 'CostComparison', 'Workload', 'BilledWorkload', 'CapacityComparison')) {
+                @($rows | Where-Object RecordType -eq $type).Count | Should BeGreaterThan 0
+            }
+            $schema = $rows[0].PSObject.Properties.Name -join ','
+            foreach ($row in $rows) {
+                $row.PSObject.TypeNames[0] | Should Be "StorageMetrics.$($row.RecordType)"
+                ($row.PSObject.Properties.Name -join ',') | Should Be $schema
+                @($row.PSObject.TypeNames | Where-Object { $_ -like 'StorageMetrics.*' }).Count | Should Be 1
+            }
+            $rows | Export-Csv "$TestDrive\typed.csv" -NoTypeInformation
+            $csv = @(Import-Csv "$TestDrive\typed.csv")
+            $json = @(ConvertTo-Json -InputObject $rows -Depth 5 | ConvertFrom-Json)
+            ($csv[0].PSObject.Properties.Name -join ',') | Should Be $schema
+            ($json[0].PSObject.Properties.Name -join ',') | Should Be $schema
+            @($json | Where-Object { $_.RecordType -eq 'Capacity' -and $null -eq $_.RequestCount }).Count | Should Be 1
+        } finally { Set-StrictMode -Off }
     }
 
     It 'compares documented ADLS data capacity with recognized ADLS billing independently of index' {
@@ -421,7 +454,7 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeWorkloadBaseline } | Should Throw 'requires IncludeCostComparison or CostDetailsCsv'
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddDays(1) -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline } | Should Throw 'completed UTC'
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -SummaryPeriod Chunk -CostDetailsCsv $script:csv -IncludeWorkloadBaseline } | Should Throw 'completed UTC'
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0
     }
 
     It 'does not reinterpret Untiered capacity as the default Hot tier' {
@@ -456,6 +489,7 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         @($rows | Where-Object RecordType -in @('Workload', 'BilledWorkload', 'CapacityComparison')).Count | Should Be 0
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity' }
+        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity' }
     }
+}
 }
