@@ -1,18 +1,20 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Offline Az boundary stubs retain the parameters consumed by Pester mocks.')]
 param()
 
-Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
-
-InModuleScope StorageMetrics {
-function Get-AzContext { param([switch]$ListAvailable) }
-function Invoke-AzRestMethod { param($Path, $Uri, $Method, $Payload, $DefaultProfile) }
+BeforeAll {
+    Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+    InModuleScope StorageMetrics {
+        function script:Get-AzContext { param([switch]$ListAvailable) }
+        function script:Invoke-AzRestMethod { param($Path, $Uri, $Method, $Payload, $DefaultProfile) }
+    }
+}
 
 Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
     BeforeEach {
-        . "$PSScriptRoot\..\Get-AzStorageTransactionMetric.ps1"
+        Mock Get-UtcNow -ModuleName StorageMetrics { [datetimeoffset]'2026-10-16T12:00:00Z' }
         $script:sub = '11111111-1111-1111-1111-111111111111'
         $script:id = "/subscriptions/$script:sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/testaccount"
-        $script:end = [datetimeoffset]::new([datetime]::UtcNow.Year, [datetime]::UtcNow.Month, 1, 0, 0, 0, [timespan]::Zero)
+        $script:end = [datetimeoffset]::new(2026, 10, 1, 0, 0, 0, [timespan]::Zero)
         $script:start = $script:end.AddMonths(-1)
         $script:csv = "$TestDrive\cost.csv"
         $script:costRows = @(
@@ -42,6 +44,7 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
             } }
         }
         Mock Invoke-AzRestMethod -ModuleName StorageMetrics {
+            param($Path, $Uri)
             if ($Path -match 'generateCostDetailsReport') {
                 $script:reportCalls++
                 if ($script:reportFailure) { return [pscustomobject]@{StatusCode=403;Content='Denied'} }
@@ -93,27 +96,27 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
     It 'compares CSV billed quantities with monthly observed requests without altering metrics' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
-        ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
+        ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should -Be 3
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CostComparison' -and $_.Category -eq 'Reads' }
-        $comparison.RequestCount | Should Be 3
-        $comparison.BilledOperationCount | Should Be 3
-        $comparison.RequestMinusBilledCount | Should Be 0
-        $comparison.ActualCost | Should Be 0.00012
-        $comparison.Currency | Should Be 'USD'
-        $comparison.ComparisonStatus | Should Be 'CountsMatch'
-        ($rows | Where-Object RecordType -eq 'CostMeter').MeterId | Should Be 'read-meter'
+        $comparison.RequestCount | Should -Be 3
+        $comparison.BilledOperationCount | Should -Be 3
+        $comparison.RequestMinusBilledCount | Should -Be 0
+        $comparison.ActualCost | Should -Be 0.00012
+        $comparison.Currency | Should -Be 'USD'
+        $comparison.ComparisonStatus | Should -Be 'CountsMatch'
+        ($rows | Where-Object RecordType -eq 'CostMeter').MeterId | Should -Be 'read-meter'
     }
 
     It 'retrieves a live asynchronous report and includes every CSV partition' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop)
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CostComparison' -and $_.Category -eq 'Reads' }
-        $comparison.BilledOperationCount | Should Be 6
-        ($comparison.RequestMinusBilledCount -eq -3) | Should Be $true
-        $comparison.ComparisonStatus | Should Be 'CountsDiffer'
-        $comparison.CostSource | Should Be 'CostDetailsApi'
-        $script:reportCalls | Should Be 1
-        $script:downloadCalls | Should Be 2
-        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 1 }
+        $comparison.BilledOperationCount | Should -Be 6
+        ($comparison.RequestMinusBilledCount -eq -3) | Should -Be $true
+        $comparison.ComparisonStatus | Should -Be 'CountsDiffer'
+        $comparison.CostSource | Should -Be 'CostDetailsApi'
+        $script:reportCalls | Should -Be 1
+        $script:downloadCalls | Should -Be 2
+        Should -Invoke Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 1 }
     }
 
     It 'does not compare Defender transactions with Blob operations' {
@@ -122,18 +125,18 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $meter = $rows | Where-Object RecordType -eq 'CostMeter'
-        $meter.ComparisonStatus | Should Be 'NotOperationMeter'
-        ($null -eq $meter.BilledOperationCount) | Should Be $true
-        $meter.ActualCost | Should Be 0.00012
+        $meter.ComparisonStatus | Should -Be 'NotOperationMeter'
+        ($null -eq $meter.BilledOperationCount) | Should -Be $true
+        $meter.ActualCost | Should -Be 0.00012
     }
 
     It 'keeps absent billing meters null instead of reporting zero charges' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CostComparison' -and $_.Category -eq 'Writes' }
-        $comparison.ComparisonStatus | Should Be 'NoMatchingBillingMeter'
-        ($null -eq $comparison.BilledOperationCount) | Should Be $true
-        ($null -eq $comparison.ActualCost) | Should Be $true
+        $comparison.ComparisonStatus | Should -Be 'NoMatchingBillingMeter'
+        ($null -eq $comparison.BilledOperationCount) | Should -Be $true
+        ($null -eq $comparison.ActualCost) | Should -Be $true
     }
 
     It 'does not assume an operation unit multiplier from cost or meter name' {
@@ -141,8 +144,8 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CostComparison' -and $_.Category -eq 'Reads' }
-        $comparison.ComparisonStatus | Should Be 'UnverifiedUnit'
-        ($null -eq $comparison.BilledOperationCount) | Should Be $true
+        $comparison.ComparisonStatus | Should -Be 'UnverifiedUnit'
+        ($null -eq $comparison.BilledOperationCount) | Should -Be $true
     }
 
     It 'keeps currencies and tier meters separate and excludes refunds from usage comparisons' {
@@ -157,11 +160,11 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         @($script:costRows[0],$other,$refund) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $comparisons = @($rows | Where-Object { $_.RecordType -eq 'CostComparison' -and $_.Category -eq 'Reads' })
-        $comparisons.Count | Should Be 2
-        $comparisons[0].BilledOperationCount | Should Be 3
-        $comparisons[1].BilledOperationCount | Should Be 3
-        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 3
-        ($rows | Where-Object ChargeType -eq 'Refund').ComparisonStatus | Should Be 'NonUsageCharge'
+        $comparisons.Count | Should -Be 2
+        $comparisons[0].BilledOperationCount | Should -Be 3
+        $comparisons[1].BilledOperationCount | Should -Be 3
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should -Be 3
+        ($rows | Where-Object ChargeType -eq 'Refund').ComparisonStatus | Should -Be 'NonUsageCharge'
     }
 
     It 'filters billing rows by exact account and usage date' {
@@ -171,8 +174,8 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $other.ResourceId = $script:id.Replace('testaccount','otheraccount')
         @($script:costRows[0],$old,$other) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
-        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
-        ($rows | Where-Object RecordType -eq 'CostMeter').BilledOperationCount | Should Be 3
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should -Be 1
+        ($rows | Where-Object RecordType -eq 'CostMeter').BilledOperationCount | Should -Be 3
     }
 
     It 'marks comparisons incomplete without losing available billed quantities' {
@@ -180,39 +183,39 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -WarningAction SilentlyContinue -ErrorAction Stop)
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CostComparison' -and $_.Category -eq 'Reads' }
-        $comparison.ComparisonStatus | Should Be 'MetricsIncomplete'
-        $comparison.BilledOperationCount | Should Be 3
-        ($null -eq $comparison.RequestMinusBilledCount) | Should Be $true
+        $comparison.ComparisonStatus | Should -Be 'MetricsIncomplete'
+        $comparison.BilledOperationCount | Should -Be 3
+        ($null -eq $comparison.RequestMinusBilledCount) | Should -Be $true
     }
 
     It 'surfaces cost access failures separately without discarding valid Monitor results' {
         $script:reportFailure = $true
         $errors = @()
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction SilentlyContinue -ErrorVariable errors)
-        ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
-        ($rows | Where-Object RecordType -eq 'CostError').Message | Should Match '403'
-        @($errors | Where-Object FullyQualifiedErrorId -like 'StorageCostComparisonFailed*').Count | Should Be 1
-        @($rows | Where-Object RecordType -eq 'CostComparison').Count | Should Be 0
+        ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should -Be 3
+        ($rows | Where-Object RecordType -eq 'CostError').Message | Should -Match '403'
+        @($errors | Where-Object FullyQualifiedErrorId -like 'StorageCostComparisonFailed*').Count | Should -Be 1
+        @($rows | Where-Object RecordType -eq 'CostComparison').Count | Should -Be 0
     }
 
     It 'rejects report polling URLs outside the authenticated ARM endpoint' {
         $script:badPollHost = $true
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } | Should Throw 'invalid polling location'
-        $script:downloadCalls | Should Be 0
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } | Should -Throw '*invalid polling location*'
+        $script:downloadCalls | Should -Be 0
     }
 
     It 'does not expose signed download URLs in error records' {
         $script:downloadFailure = $true
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction SilentlyContinue)
         $errorRow = $rows | Where-Object RecordType -eq 'CostError'
-        $errorRow.Message | Should Match 'download failed'
-        $errorRow.Message | Should Not Match 'sig=|secret'
+        $errorRow.Message | Should -Match 'download failed'
+        $errorRow.Message | Should -Not -Match 'sig=|secret'
     }
 
     It 'rejects partial-month or chunk-based cost comparisons before Azure requests' {
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddDays(1) -EndTime $script:end -IncludeCostComparison } | Should Throw 'completed UTC'
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -SummaryPeriod Chunk -IncludeCostComparison } | Should Throw 'completed UTC'
-        $script:metricCalls | Should Be 0
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddDays(1) -EndTime $script:end -IncludeCostComparison } | Should -Throw '*completed UTC*'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -SummaryPeriod Chunk -IncludeCostComparison } | Should -Throw '*completed UTC*'
+        $script:metricCalls | Should -Be 0
     }
 
     It 'retains cost fields when exporting the mixed flat output' {
@@ -220,8 +223,8 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $rows | Export-Csv "$TestDrive\comparison.csv" -NoTypeInformation
         $exported = Import-Csv "$TestDrive\comparison.csv"
-        ($exported | Where-Object RecordType -eq 'CostMeter').MeterName | Should Be 'Hot Read Operations'
-        ($exported | Where-Object RecordType -eq 'CostMeter').ActualCost | Should Be '0.00012'
+        ($exported | Where-Object RecordType -eq 'CostMeter').MeterName | Should -Be 'Hot Read Operations'
+        ($exported | Where-Object RecordType -eq 'CostMeter').ActualCost | Should -Be '0.00012'
     }
 
     It 'supports CSV comparisons under strict mode' {
@@ -229,45 +232,57 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         Set-StrictMode -Version Latest
         try {
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
-            @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
+            @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should -Be 1
         } finally { Set-StrictMode -Off }
     }
 
     It 'retains the polling location across subsequent pending responses' {
         $script:pendingPolls = 1
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop)
-        $script:pollCalls | Should Be 2
-        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
+        $script:pollCalls | Should -Be 2
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should -Be 1
     }
 
     It 'bounds polling instead of waiting indefinitely' {
         $script:pendingPolls = 100
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } | Should Throw 'polling limit'
-        $script:downloadCalls | Should Be 0
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } | Should -Throw '*polling limit*'
+        $script:downloadCalls | Should -Be 0
+    }
+
+    It 'stops polling when the injected clock reaches the report deadline' {
+        $script:clock = [datetimeoffset]'2026-10-16T12:00:00Z'
+        $script:pendingPolls = 1
+        Mock Get-UtcNow -ModuleName StorageMetrics { $script:clock }
+        Mock Start-Sleep -ModuleName StorageMetrics { $script:clock = [datetimeoffset]'2026-10-16T12:10:00Z' }
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } |
+            Should -Throw '*polling limit*'
+        $script:pollCalls | Should -Be 1
+        $script:downloadCalls | Should -Be 0
+        Should -Invoke Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly
     }
 
     It 'allows a configurable Cost Details polling timeout up to sixty minutes' {
         $script:retryAfter = '601'
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start `
             -EndTime $script:end -IncludeCostComparison -CostReportTimeoutMinutes 20 -ErrorAction Stop)
-        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
-        Assert-MockCalled Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 601 }
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should -Be 1
+        Should -Invoke Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 601 }
     }
 
     It 'uses a ten-minute Cost Details polling timeout by default' {
         $script:retryAfter = '601'
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start `
             -EndTime $script:end -IncludeCostComparison -ErrorAction SilentlyContinue)
-        @($rows | Where-Object RecordType -eq 'CostError').Count | Should Be 1
-        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 0
+        @($rows | Where-Object RecordType -eq 'CostError').Count | Should -Be 1
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should -Be 0
     }
 
     It 'rejects Cost Details polling timeouts greater than sixty minutes' {
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start `
             -EndTime $script:end -IncludeCostComparison -CostReportTimeoutMinutes 61 } |
-            Should Throw 'validate argument'
-        $script:metricCalls | Should Be 0
-        $script:reportCalls | Should Be 0
+            Should -Throw '*validate argument*'
+        $script:metricCalls | Should -Be 0
+        $script:reportCalls | Should -Be 0
     }
 
     It 'filters unrelated rows before parsing dates and handles a 50000-row billing CSV efficiently' {
@@ -289,28 +304,28 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $timer.Stop()
 
         $meters = @($rows | Where-Object RecordType -eq 'CostMeter')
-        $meters.Count | Should Be 1
-        $meters[0].ResourceId | Should Be $script:id
-        $meters[0].BilledOperationCount | Should Be 3
-        $timer.Elapsed.TotalSeconds | Should BeLessThan 30
+        $meters.Count | Should -Be 1
+        $meters[0].ResourceId | Should -Be $script:id
+        $meters[0].BilledOperationCount | Should -Be 3
+        $timer.Elapsed.TotalSeconds | Should -BeLessThan 30
     }
 
     It 'rejects incomplete report manifests rather than comparing a partial download' {
         $script:badManifest = $true
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } | Should Throw 'every report partition'
-        $script:downloadCalls | Should Be 0
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } | Should -Throw '*every report partition*'
+        $script:downloadCalls | Should -Be 0
     }
 
     It 'rejects duplicate CSV paths instead of double-counting billed quantities' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv @($script:csv,$script:csv) -ErrorAction Stop } | Should Throw 'Duplicate cost CSV'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv @($script:csv,$script:csv) -ErrorAction Stop } | Should -Throw '*Duplicate cost CSV*'
     }
 
     It 'reports malformed cost numbers as a cost failure' {
         $script:costRows[0].Quantity = 'invalid'
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction SilentlyContinue)
-        ($rows | Where-Object RecordType -eq 'CostError').Message | Should Match 'Invalid cost details number'
+        ($rows | Where-Object RecordType -eq 'CostError').Message | Should -Match 'Invalid cost details number'
     }
 
     It 'excludes unassigned billing charges without invalidating account comparisons' {
@@ -318,8 +333,8 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $unassigned.ResourceId = ''
         @($script:costRows[0],$unassigned) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -WarningAction SilentlyContinue -ErrorAction Stop)
-        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
-        ($rows | Where-Object RecordType -eq 'CostMeter').BilledOperationCount | Should Be 3
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should -Be 1
+        ($rows | Where-Object RecordType -eq 'CostMeter').BilledOperationCount | Should -Be 3
     }
 
     It 'preserves daily billing evidence and does not merge different rate or benefit contexts' {
@@ -343,18 +358,18 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeCostDetail -ErrorAction Stop)
         $meters = @($rows | Where-Object RecordType -eq 'CostMeter')
         $details = @($rows | Where-Object RecordType -eq 'CostDetail')
-        $meters.Count | Should Be 2
-        $details.Count | Should Be 2
-        $details[1].BillingUsageDate | Should Be $script:start.AddDays(1).ToString('yyyy-MM-dd')
-        $details[1].ReservationId | Should Be 'reservation'
-        $details[1].BilledOperationCount | Should Be 3
-        $details[1].ActualCost | Should Be 0
-        $details[0].MeterRegion | Should Be 'US East'
-        $details[0].UnitPrice | Should Be 0.5
-        $details[0].PayGPrice | Should Be 0.6
-        $details[0].BillingCoverageStatus | Should Be 'CsvCoverageUnverified'
+        $meters.Count | Should -Be 2
+        $details.Count | Should -Be 2
+        $details[1].BillingUsageDate | Should -Be $script:start.AddDays(1).ToString('yyyy-MM-dd')
+        $details[1].ReservationId | Should -Be 'reservation'
+        $details[1].BilledOperationCount | Should -Be 3
+        $details[1].ActualCost | Should -Be 0
+        $details[0].MeterRegion | Should -Be 'US East'
+        $details[0].UnitPrice | Should -Be 0.5
+        $details[0].PayGPrice | Should -Be 0.6
+        $details[0].BillingCoverageStatus | Should -Be 'CsvCoverageUnverified'
         $rows | Export-Csv "$TestDrive\evidence.csv" -NoTypeInformation
-        (Import-Csv "$TestDrive\evidence.csv" | Where-Object { $_.RecordType -eq 'CostDetail' -and $_.PricingModel -eq 'Reservation' }).BenefitId | Should Be 'benefit'
+        (Import-Csv "$TestDrive\evidence.csv" | Where-Object { $_.RecordType -eq 'CostDetail' -and $_.PricingModel -eq 'Reservation' }).BenefitId | Should -Be 'benefit'
     }
 
     It 'classifies capacity retrieval early deletion and feature quantities without inventing byte units' {
@@ -384,15 +399,15 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         for ($index = 0; $index -lt $cases.Count; $index++) {
             $meter = $rows | Where-Object { $_.RecordType -eq 'CostMeter' -and $_.MeterId -eq "meter-$index" }
-            $meter.BillingQuantityKind | Should Be $cases[$index][3]
-            $meter.NormalizedBilledUnit | Should Be $cases[$index][4]
-            $meter.NormalizedBilledQuantity | Should Be $cases[$index][5]
-            ($null -eq $meter.BilledOperationCount) | Should Be $true
-            $meter.QuantityBasis | Should Be 'BillingReportedUsage'
+            $meter.BillingQuantityKind | Should -Be $cases[$index][3]
+            $meter.NormalizedBilledUnit | Should -Be $cases[$index][4]
+            $meter.NormalizedBilledQuantity | Should -Be $cases[$index][5]
+            ($null -eq $meter.BilledOperationCount) | Should -Be $true
+            $meter.QuantityBasis | Should -Be 'BillingReportedUsage'
         }
         $capacity = $rows | Where-Object MeterId -eq 'meter-0'
-        $capacity.BillingTier | Should Be 'Hot'
-        $capacity.BillingRedundancy | Should Be 'RA-GRS'
+        $capacity.BillingTier | Should -Be 'Hot'
+        $capacity.BillingRedundancy | Should -Be 'RA-GRS'
     }
 
     It 'normalizes the documented per-100 iterative write unit' {
@@ -403,9 +418,9 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $meter = $rows | Where-Object RecordType -eq 'CostMeter'
-        $meter.BilledOperationCount | Should Be 200
-        $meter.NormalizedBilledQuantity | Should Be 200
-        $meter.BillingMappingStatus | Should Be 'VerifiedOperationUnit'
+        $meter.BilledOperationCount | Should -Be 200
+        $meter.NormalizedBilledQuantity | Should -Be 200
+        $meter.BillingMappingStatus | Should -Be 'VerifiedOperationUnit'
     }
 
     It 'keeps unknown units and unknown meters raw instead of extrapolating quantities' {
@@ -416,11 +431,11 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $unknown.MeterName = 'New Feature'
         @($script:costRows[0], $unknown) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
-        ($rows | Where-Object MeterId -eq 'read-meter').BillingMappingStatus | Should Be 'UnverifiedUnit'
+        ($rows | Where-Object MeterId -eq 'read-meter').BillingMappingStatus | Should -Be 'UnverifiedUnit'
         $meter = $rows | Where-Object MeterId -eq 'unknown-meter'
-        $meter.BillingMappingStatus | Should Be 'Unclassified'
-        ($null -eq $meter.NormalizedBilledQuantity) | Should Be $true
-        $meter.BilledQuantity | Should Be 0.0003
+        $meter.BillingMappingStatus | Should -Be 'Unclassified'
+        ($null -eq $meter.NormalizedBilledQuantity) | Should -Be $true
+        $meter.BilledQuantity | Should -Be 0.0003
     }
 
     It 'supports legacy UsageDateTime and keeps billing coverage independent of Monitor reconciliation' {
@@ -431,17 +446,17 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         Set-StrictMode -Version Latest
         try {
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeCostDetail -ErrorAction Stop)
-            ($rows | Where-Object RecordType -eq 'CostDetail').BillingUsageDate | Should Be $script:start.ToString('yyyy-MM-dd')
-            ($rows | Where-Object RecordType -eq 'CostMeter').CompletenessStatus | Should Be 'CsvCoverageUnverified'
-            ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should Be 'Reconciled'
+            ($rows | Where-Object RecordType -eq 'CostDetail').BillingUsageDate | Should -Be $script:start.ToString('yyyy-MM-dd')
+            ($rows | Where-Object RecordType -eq 'CostMeter').CompletenessStatus | Should -Be 'CsvCoverageUnverified'
+            ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should -Be 'Reconciled'
         } finally { Set-StrictMode -Off }
     }
 
     It 'does not expose detail rows by default and rejects detail without a billing source' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
-        @($rows | Where-Object RecordType -eq 'CostDetail').Count | Should Be 0
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostDetail } | Should Throw 'requires IncludeCostComparison or CostDetailsCsv'
+        @($rows | Where-Object RecordType -eq 'CostDetail').Count | Should -Be 0
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostDetail } | Should -Throw '*requires IncludeCostComparison or CostDetailsCsv*'
     }
 
     It 'classifies network meters only in the bandwidth catalog and keeps their raw GB convention' {
@@ -454,10 +469,10 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $row | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $meter = $rows | Where-Object RecordType -eq 'CostMeter'
-        $meter.BillingQuantityKind | Should Be 'NetworkTransfer'
-        $meter.NormalizedBilledUnit | Should Be 'BillingGB'
-        $meter.NormalizedBilledQuantity | Should Be 2
-        ($null -eq $meter.BilledOperationCount) | Should Be $true
+        $meter.BillingQuantityKind | Should -Be 'NetworkTransfer'
+        $meter.NormalizedBilledUnit | Should -Be 'BillingGB'
+        $meter.NormalizedBilledQuantity | Should -Be 2
+        ($null -eq $meter.BilledOperationCount) | Should -Be $true
     }
 
     It 'recognizes geo-replication transfer independently of client bandwidth' {
@@ -468,9 +483,8 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
         $meter = $rows | Where-Object RecordType -eq 'CostMeter'
-        $meter.BillingQuantityKind | Should Be 'GeoReplicationTransfer'
-        $meter.NormalizedBilledUnit | Should Be 'BillingGB'
-        $meter.NormalizedBilledQuantity | Should Be 0.0003
+        $meter.BillingQuantityKind | Should -Be 'GeoReplicationTransfer'
+        $meter.NormalizedBilledUnit | Should -Be 'BillingGB'
+        $meter.NormalizedBilledQuantity | Should -Be 0.0003
     }
-}
 }

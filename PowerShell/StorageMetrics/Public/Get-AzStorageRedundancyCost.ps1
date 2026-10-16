@@ -74,7 +74,7 @@ function Get-AzStorageRedundancyCost {
     $modelStart = [datetimeoffset]::ParseExact("$ModelMonth-01", 'yyyy-MM-dd',
         [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal)
     $modelHours = [decimal]($modelStart.AddMonths(1) - $modelStart).TotalHours
-    $priceTime = [datetimeoffset]::UtcNow
+    $priceTime = Get-UtcNow
     $estimateParameters.PriceTime = $priceTime
     $catalogs = @{}
     $skuRedundancyMap = @{
