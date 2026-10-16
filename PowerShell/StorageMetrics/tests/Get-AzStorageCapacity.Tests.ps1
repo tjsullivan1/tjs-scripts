@@ -12,6 +12,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $script:values = @(100, 300, 500)
         $script:capacityFailure = $false
         $script:mismatch = $false
+        $script:mismatchAboveOneHour = $false
         $script:emptyCapacity = $false
         $script:hns = $true
         $script:coolValues = $null
@@ -19,9 +20,12 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $script:duplicateSeries = $false
         $script:badMetric = $false
         $script:seriesCap = $false
+        $script:capAboveOneHour = $false
         $script:outOfWindow = $false
         $script:missingDimension = $false
         $script:currentValues = $null
+        $script:capacityStatuses = @()
+        $script:capacityStatusIndex = 0
         Mock Get-AzContext {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub; Name = 'Example subscription' } }
         }
@@ -37,6 +41,17 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
                 return [pscustomobject]@{ StatusCode = 200; Content = (@{
                     value = @(@{ name = @{ value = 'Transactions' }; unit = 'Count'; errorCode = 'Success'; timeseries = $series })
                 } | ConvertTo-Json -Depth 10) }
+            }
+            if ($Path -match 'metricnames=BlobCapacity' -and
+                $script:capacityStatusIndex -lt $script:capacityStatuses.Count) {
+                $status = $script:capacityStatuses[$script:capacityStatusIndex]
+                $script:capacityStatusIndex++
+                if ($status -ne 200) {
+                    return [pscustomobject]@{
+                        StatusCode = $status; Content = 'Transient capacity response'
+                        Headers = @{ 'Retry-After' = '0' }
+                    }
+                }
             }
             if ($script:capacityFailure) { throw 'Capacity denied' }
             $decoded = [uri]::UnescapeDataString($Path)
@@ -55,7 +70,8 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
                     if ($script:coolValues -and $Path -notmatch '%24filter=' -and $metric -eq 'BlobCapacity') {
                         $value += $script:coolValues[$index]
                     }
-                    if ($script:mismatch -and $Path -notmatch '%24filter=' -and $metric -eq 'BlobCapacity') { $value = 999 }
+                    if (($script:mismatch -or ($script:mismatchAboveOneHour -and ($last - $first).TotalHours -gt 1)) -and
+                        $Path -notmatch '%24filter=' -and $metric -eq 'BlobCapacity') { $value = 999 }
                     @{ timeStamp = $time.ToString('o'); average = $value }
                 }
             )
@@ -84,12 +100,14 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
                 }
             }
             if ($script:duplicateSeries -and $Path -match '%24filter=') { $seriesList += $series }
-            if ($script:seriesCap -and $Path -match '%24filter=') { $seriesList = @(1..10000 | ForEach-Object { $series }) }
+            if (($script:seriesCap -or ($script:capAboveOneHour -and ($last - $first).TotalHours -gt 1)) -and
+                $Path -match '%24filter=') { $seriesList = @(1..10000 | ForEach-Object { $series }) }
             [pscustomobject]@{ StatusCode = 200; Content = (@{
                 interval = 'PT1H'
                 value = @(@{ name = @{ value = $metric }; unit = 'Bytes'; errorCode = $(if ($script:badMetric) { 'BadArgument' } else { 'Success' }); timeseries = $seriesList })
             } | ConvertTo-Json -Depth 12) }
         }
+        Mock Start-Sleep {}
     }
 
         It 'reports the latest current capacity sample rather than a historical average' {
@@ -219,6 +237,26 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'BadArgument'
         }
 
+        It 'preserves thrown ARM errors under strict mode' {
+            $script:capacityFailure = $true
+            Set-StrictMode -Version Latest
+            try {
+                { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } |
+                    Should Throw 'Capacity denied'
+            } finally { Set-StrictMode -Off }
+        }
+
+        It 'retries throttled capacity GETs through the shared ARM retry helper' {
+            $script:capacityStatuses = @(429, 200)
+            $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+                -IncludeCapacity -MaxRetry 1 -ErrorAction Stop)
+            ($rows | Where-Object RecordType -eq 'Capacity').CapacityStatus | Should Be 'CompleteSamples'
+            Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter {
+                $Path -match 'metricnames=BlobCapacity'
+            }
+            Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
+        }
+
         It 'rejects duplicate timestamps and dimension series' {
             $script:duplicatePoints = $true
             { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'Duplicate capacity timestamp'
@@ -280,6 +318,28 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
     It 'fails at the exact series cap rather than accepting potentially truncated capacity' {
         $script:seriesCap = $true
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'top=10000'
+    }
+
+    It 'halves capacity query windows after the series cap and records the effective window size' {
+        $script:capAboveOneHour = $true
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+            -ChunkHours 3 -SummaryPeriod Chunk -IncludeCapacity -ErrorAction Stop)
+        $capacity = $rows | Where-Object RecordType -eq 'Capacity'
+        $capacity.QueryWindowHours | Should Be 1
+        $capacity.AverageUsedBytes | Should Be 300
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 5 -Exactly -ParameterFilter {
+            $Path -match 'metricnames=BlobCapacity' -and $Path -match '%24filter='
+        }
+    }
+
+    It 'halves capacity query windows when split and unsplit samples do not reconcile' {
+        $script:end = $script:start.AddHours(2)
+        $script:mismatchAboveOneHour = $true
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+            -ChunkHours 2 -SummaryPeriod Chunk -IncludeCapacity -ErrorAction Stop)
+        $capacity = $rows | Where-Object RecordType -eq 'Capacity'
+        $capacity.QueryWindowHours | Should Be 1
+        $capacity.AverageUsedBytes | Should Be 200
     }
 
     It 'rejects out-of-window samples and missing dimensions' {

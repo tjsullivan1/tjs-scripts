@@ -18,8 +18,13 @@ function Get-AzStorageTransactionMetric {
     .PARAMETER EndTime
     Exclusive end with an explicit offset, aligned to a whole minute.
     .PARAMETER ChunkHours
-    Query window size (1 to 24 hours). Defaults to 24. Reduce for high cardinality.
+    Maximum query window size (1 to 744 hours). Defaults to 24. Windows are split
+    adaptively when reconciliation fails or a series limit is reached.
     Does not change the monthly reporting period.
+    .PARAMETER MaxRetry
+    Maximum retries for transient ARM GET responses. Defaults to 4.
+    .PARAMETER AllowRecentData
+    Allows collection ending within the three-hour Azure Monitor ingestion window.
     .PARAMETER SummaryPeriod
     Month (default) combines verified chunks into UTC calendar-month records.
     Chunk preserves the individual query-window records for troubleshooting.
@@ -70,7 +75,7 @@ function Get-AzStorageTransactionMetric {
         [Parameter(Mandatory)]
         [datetimeoffset]$EndTime,
 
-        [ValidateRange(1, 24)]
+        [ValidateRange(1, 744)]
         [int]$ChunkHours = 24,
 
         [ValidateSet('Month', 'Chunk')]
@@ -89,14 +94,23 @@ function Get-AzStorageTransactionMetric {
         [switch]$IncludeWorkloadBaseline,
 
         [ValidateNotNullOrEmpty()]
-        [string[]]$CostDetailsCsv
+        [string[]]$CostDetailsCsv,
+
+        [int]$MaxRetry = 4,
+
+        [switch]$AllowRecentData
     )
 
     begin {
         $start = $StartTime.ToUniversalTime()
         $end = $EndTime.ToUniversalTime()
-        if ($start -ge $end -or $end -gt [datetimeoffset]::UtcNow) {
+        if ($MaxRetry -lt 0) { throw 'MaxRetry must be nonnegative.' }
+        $now = [datetimeoffset]::UtcNow
+        if ($start -ge $end -or $end -gt $now) {
             throw 'StartTime must precede EndTime; EndTime cannot be in the future.'
+        }
+        if (-not $AllowRecentData -and $end -gt $now.AddHours(-3)) {
+            throw 'EndTime must be at least three hours before the current UTC time to allow Azure Monitor ingestion. Use -AllowRecentData to override.'
         }
         if ($start.Ticks % [timespan]::TicksPerMinute -or $end.Ticks % [timespan]::TicksPerMinute) {
             throw 'StartTime and EndTime must be aligned to whole minutes.'
@@ -106,6 +120,7 @@ function Get-AzStorageTransactionMetric {
         if ($collectCapacity -and ($start.Ticks % [timespan]::TicksPerHour -or $end.Ticks % [timespan]::TicksPerHour)) {
             throw 'IncludeCapacity requires StartTime and EndTime aligned to whole hours.'
         }
+        . "$PSScriptRoot\StorageArmRequest.ps1"
         if ($collectCapacity -or $IncludeCurrentCapacity) { . "$PSScriptRoot\StorageCapacityMetrics.ps1" }
         if ($start -lt [datetimeoffset]::UtcNow.AddDays(-93)) {
             throw 'StartTime is outside the 93-day Azure Monitor platform metric retention window.'
@@ -188,10 +203,7 @@ function Get-AzStorageTransactionMetric {
 
         function Invoke-StorageMetricRequest {
             param([string]$Path, [object]$Context)
-            $response = Invoke-AzRestMethod -Path $Path -Method GET -DefaultProfile $Context -ErrorAction Stop
-            if ([int]$response.StatusCode -ne 200) {
-                throw "ARM HTTP $($response.StatusCode): $($response.Content)"
-            }
+            $response = Invoke-StorageArmGet -Path $Path -Context $Context -MaxRetry $MaxRetry
             $content = $response.Content | ConvertFrom-Json -AsHashtable -ErrorAction Stop
             if ($content -isnot [hashtable]) { throw 'Expected an ARM JSON object response.' }
             return $content
@@ -224,6 +236,121 @@ function Get-AzStorageTransactionMetric {
                 throw 'Transactions Total must be a nonnegative integer.'
             }
             return $count
+        }
+
+        function Get-TransactionChunkRecords {
+            param(
+                [datetimeoffset]$WindowStart,
+                [datetimeoffset]$WindowEnd,
+                [object]$Context,
+                [hashtable]$AccountMap,
+                [bool]$SupportsLake
+            )
+            $chunkStart = $WindowStart
+            $chunkEnd = $WindowEnd
+            $utcFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+            $timespan = [uri]::EscapeDataString(
+                "$($chunkStart.ToString($utcFormat, [cultureinfo]::InvariantCulture))/$($chunkEnd.ToString($utcFormat, [cultureinfo]::InvariantCulture))"
+            )
+            $path = "$id/blobServices/default/providers/Microsoft.Insights/metrics" +
+                "?api-version=2023-10-01&metricnamespace=Microsoft.Storage%2FstorageAccounts%2FblobServices" +
+                "&metricnames=Transactions&aggregation=Total&interval=FULL&timespan=$timespan" +
+                '&AutoAdjustTimegrain=false&ValidateDimensions=true'
+            $filter = "ApiName eq '*' and ResponseType eq '*' and Tier eq '*' and " +
+                "GeoType eq '*' and Authentication eq '*' and TransactionType eq '*'"
+            $splitResponse = Invoke-StorageMetricRequest -Path (
+                $path + '&top=10000&%24filter=' + [uri]::EscapeDataString($filter)
+            ) -Context $Context
+            $split = @(Get-TransactionSeries -Response $splitResponse)
+            if ($split.Count -ge 10000) {
+                return @{
+                    NeedsSplit = $true
+                    Message = 'Split series reached top=10000; completeness cannot be verified.'
+                    Records = @()
+                }
+            }
+            $totalResponse = Invoke-StorageMetricRequest -Path $path -Context $Context
+            $totalSeries = @(Get-TransactionSeries -Response $totalResponse)
+            if ($totalSeries.Count -gt 1) { throw 'Unsplit query unexpectedly returned multiple series.' }
+            $total = $null
+            if ($totalSeries.Count -eq 1) {
+                $total = Get-SeriesCount -Series $totalSeries[0]
+            } elseif ($split.Count -eq 0 -and $totalResponse['value'][0]['errorCode'] -eq 'Success' -and
+                $splitResponse['value'][0]['errorCode'] -eq 'Success') {
+                $total = [decimal]0
+            }
+            $missing = $null -eq $total
+            $splitSum = [decimal]0
+            $details = [System.Collections.Generic.List[object]]::new()
+            $keys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            $sums = @{}
+            foreach ($category in $categories) { $sums[$category] = [decimal]0 }
+            foreach ($series in $split) {
+                $dimensions = @{}
+                foreach ($metadata in $series['metadatavalues']) {
+                    $dimensions[$metadata['name']['value']] = $metadata['value']
+                }
+                foreach ($dimension in @('ApiName', 'ResponseType', 'Tier', 'GeoType', 'Authentication', 'TransactionType')) {
+                    if (-not $dimensions.ContainsKey($dimension)) {
+                        throw "Split series is missing dimension $dimension."
+                    }
+                }
+                $key = @($dimensions['ApiName'], $dimensions['ResponseType'], $dimensions['Tier'],
+                    $dimensions['GeoType'], $dimensions['Authentication'], $dimensions['TransactionType']) |
+                    ConvertTo-Json -Compress
+                if (-not $keys.Add($key)) { throw 'Duplicate split dimension series.' }
+                $count = Get-SeriesCount -Series $series
+                if ($null -eq $count) { $missing = $true } else { $splitSum += $count }
+                $api = $dimensions['ApiName']
+                $category = 'Unmapped'
+                $mappingStatus = 'UnknownApi'
+                if ($null -eq $AccountMap) {
+                    $mappingStatus = 'UnsupportedAccount'
+                } elseif ($api -eq 'SetBlobTier') {
+                    $mappingStatus = 'AmbiguousTierChangeOrBatch'
+                } elseif ($SupportsLake -and $lakeMap.ContainsKey($api)) {
+                    $category = $lakeMap[$api]
+                    $mappingStatus = 'Documented'
+                } elseif ($AccountMap.ContainsKey($api)) {
+                    $category = $AccountMap[$api]
+                    $mappingStatus = 'Documented'
+                }
+                if ($category -eq 'Free') { $mappingStatus = 'DocumentedFree' }
+                if ($null -ne $count) { $sums[$category] += $count }
+                $details.Add(@{ Category = $category; Count = $count; Dimensions = $dimensions; MappingStatus = $mappingStatus })
+            }
+            if (-not $missing -and $splitSum -ne $total) {
+                return @{
+                    NeedsSplit = $true
+                    Message = "Split count $splitSum does not match unsplit count $total."
+                    Records = @()
+                }
+            }
+            $completeness = 'Reconciled'
+            $status = 'Observed'
+            if ($missing) {
+                $completeness = 'UnverifiableMissingData'
+                $status = 'MissingData'
+                Write-Warning "$id [$chunkStart, $chunkEnd): missing Totals; category summaries are null."
+            }
+            $chunkRecords = [System.Collections.Generic.List[object]]::new()
+            $chunkRecords.Add((New-TransactionRecord -Type 'AccountTotal' -Count $total -Status $(
+                if ($null -eq $total) { 'MissingData' } else { 'Observed' }
+            ) -Completeness $completeness))
+            foreach ($category in $categories) {
+                $count = $null
+                if (-not $missing) { $count = $sums[$category] }
+                $chunkRecords.Add((New-TransactionRecord -Type 'Summary' -Category $category -Count $count `
+                    -Status $status -Completeness $completeness))
+            }
+            if ($collectDetail) {
+                foreach ($detail in $details) {
+                    $chunkRecords.Add((New-TransactionRecord -Type 'Detail' -Category $detail.Category -Count $detail.Count `
+                        -Status $(if ($null -eq $detail.Count) { 'MissingData' } else { 'Observed' }) `
+                        -Completeness $completeness -Dimensions $detail.Dimensions -MappingStatus $detail.MappingStatus))
+                }
+            }
+            return @{ NeedsSplit = $false; Message = $null; Records = $chunkRecords.ToArray() }
         }
 
         function New-TransactionRecord {
@@ -272,6 +399,9 @@ function Get-AzStorageTransactionMetric {
                 QueryAccelerationDataScannedBytes = $null
                 QueryAccelerationDataReturnedBytes = $null
                 QueryAccelerationStatus = 'UnavailableInPlatformMetrics'
+                QueryWindowHours = if ($SummaryPeriod -eq 'Chunk' -and $Type -ne 'Error') {
+                    [decimal]($chunkEnd - $chunkStart).TotalHours
+                } else { $null }
                 Message = $Message
                 BilledQuantity = $null
                 UnitOfMeasure = $null
@@ -381,6 +511,7 @@ function Get-AzStorageTransactionMetric {
                     $record.EndTime = $periodEnd.ToString('o')
                     $record.SummaryPeriod = 'Month'
                     $record.IsPartialMonth = $periodStart -ne $monthStart -or $periodEnd -ne $monthEnd
+                    $record.QueryWindowHours = $null
                     $record
                 }
             }
@@ -445,106 +576,37 @@ function Get-AzStorageTransactionMetric {
                     Write-Warning "$id has no account column in the documented mapping; requests will be Unmapped."
                 }
                 for ($chunkStart = $start; $chunkStart -lt $end; $chunkStart = $chunkEnd) {
-                    $chunkEnd = $chunkStart.AddHours($ChunkHours)
-                    if ($chunkEnd -gt $end) { $chunkEnd = $end }
+                    $requestedEnd = $chunkStart.AddHours($ChunkHours)
+                    if ($requestedEnd -gt $end) { $requestedEnd = $end }
                     if ($SummaryPeriod -eq 'Month') {
                         $nextMonth = [datetimeoffset]::new($chunkStart.Year, $chunkStart.Month, 1, 0, 0, 0, [timespan]::Zero).AddMonths(1)
-                        if ($chunkEnd -gt $nextMonth) { $chunkEnd = $nextMonth }
+                        if ($requestedEnd -gt $nextMonth) { $requestedEnd = $nextMonth }
                     }
-                    $utcFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-                    $timespan = [uri]::EscapeDataString(
-                        "$($chunkStart.ToString($utcFormat, [cultureinfo]::InvariantCulture))/$($chunkEnd.ToString($utcFormat, [cultureinfo]::InvariantCulture))"
-                    )
-                    $path = "$id/blobServices/default/providers/Microsoft.Insights/metrics" +
-                        "?api-version=2023-10-01&metricnamespace=Microsoft.Storage%2FstorageAccounts%2FblobServices" +
-                        "&metricnames=Transactions&aggregation=Total&interval=FULL&timespan=$timespan" +
-                        '&AutoAdjustTimegrain=false&ValidateDimensions=true'
-                    $filter = "ApiName eq '*' and ResponseType eq '*' and Tier eq '*' and " +
-                        "GeoType eq '*' and Authentication eq '*' and TransactionType eq '*'"
-                    $splitResponse = Invoke-StorageMetricRequest -Path (
-                        $path + '&top=10000&%24filter=' + [uri]::EscapeDataString($filter)
-                    ) -Context $context
-                    $split = @(Get-TransactionSeries -Response $splitResponse)
-                    if ($split.Count -ge 10000) {
-                        throw 'Split series reached top=10000; completeness cannot be verified. Reduce ChunkHours.'
-                    }
-                    $totalResponse = Invoke-StorageMetricRequest -Path $path -Context $context
-                    $totalSeries = @(Get-TransactionSeries -Response $totalResponse)
-                    if ($totalSeries.Count -gt 1) { throw 'Unsplit query unexpectedly returned multiple series.' }
-                    $total = $null
-                    if ($totalSeries.Count -eq 1) {
-                        $total = Get-SeriesCount -Series $totalSeries[0]
-                    } elseif ($split.Count -eq 0 -and $totalResponse['value'][0]['errorCode'] -eq 'Success' -and
-                        $splitResponse['value'][0]['errorCode'] -eq 'Success') {
-                        # Explicit Success with empty timeseries is Azure Monitor's no-traffic response.
-                        $total = [decimal]0
-                    }
-                    $missing = $null -eq $total
-                    $splitSum = [decimal]0
-                    $details = [System.Collections.Generic.List[object]]::new()
-                    $keys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-                    $sums = @{}
-                    foreach ($category in $categories) { $sums[$category] = [decimal]0 }
-                    foreach ($series in $split) {
-                        $dimensions = @{}
-                        foreach ($metadata in $series['metadatavalues']) {
-                            $dimensions[$metadata['name']['value']] = $metadata['value']
-                        }
-                        foreach ($dimension in @('ApiName', 'ResponseType', 'Tier', 'GeoType', 'Authentication', 'TransactionType')) {
-                            if (-not $dimensions.ContainsKey($dimension)) {
-                                throw "Split series is missing dimension $dimension."
+                    $pendingWindows = [System.Collections.Generic.Stack[object]]::new()
+                    $pendingWindows.Push([pscustomobject]@{ Start = $chunkStart; End = $requestedEnd })
+                    while ($pendingWindows.Count) {
+                        $window = $pendingWindows.Pop()
+                        $chunkStart = $window.Start
+                        $chunkEnd = $window.End
+                        $result = Get-TransactionChunkRecords -WindowStart $chunkStart -WindowEnd $chunkEnd `
+                            -Context $context -AccountMap $map -SupportsLake $supportsLake
+                        if ($result.NeedsSplit) {
+                            $windowHours = ($chunkEnd - $chunkStart).TotalHours
+                            if ($windowHours -le 1) {
+                                throw "$($result.Message) Minimum one-hour window reached."
                             }
+                            $splitMinutes = [math]::Floor(($chunkEnd - $chunkStart).TotalMinutes / 2)
+                            $splitAt = $chunkStart.AddMinutes($splitMinutes)
+                            if ($splitAt -le $chunkStart -or $splitAt -ge $chunkEnd) {
+                                throw "$($result.Message) The window cannot be split further."
+                            }
+                            $pendingWindows.Push([pscustomobject]@{ Start = $splitAt; End = $chunkEnd })
+                            $pendingWindows.Push([pscustomobject]@{ Start = $chunkStart; End = $splitAt })
+                            continue
                         }
-                        $key = @($dimensions['ApiName'], $dimensions['ResponseType'], $dimensions['Tier'],
-                            $dimensions['GeoType'], $dimensions['Authentication'], $dimensions['TransactionType']) |
-                            ConvertTo-Json -Compress
-                        if (-not $keys.Add($key)) { throw 'Duplicate split dimension series.' }
-                        $count = Get-SeriesCount -Series $series
-                        if ($null -eq $count) { $missing = $true } else { $splitSum += $count }
-                        $api = $dimensions['ApiName']
-                        $category = 'Unmapped'
-                        $mappingStatus = 'UnknownApi'
-                        if ($null -eq $map) {
-                            $mappingStatus = 'UnsupportedAccount'
-                        } elseif ($api -eq 'SetBlobTier') {
-                            $mappingStatus = 'AmbiguousTierChangeOrBatch'
-                        } elseif ($supportsLake -and $lakeMap.ContainsKey($api)) {
-                            $category = $lakeMap[$api]
-                            $mappingStatus = 'Documented'
-                        } elseif ($map.ContainsKey($api)) {
-                            $category = $map[$api]
-                            $mappingStatus = 'Documented'
-                        }
-                        if ($category -eq 'Free') { $mappingStatus = 'DocumentedFree' }
-                        if ($null -ne $count) { $sums[$category] += $count }
-                        $details.Add(@{ Category = $category; Count = $count; Dimensions = $dimensions; MappingStatus = $mappingStatus })
+                        foreach ($record in $result.Records) { $records.Add($record) }
                     }
-                    if (-not $missing -and $splitSum -ne $total) {
-                        throw "Split count $splitSum does not match unsplit count $total. Possible truncation or changing metrics; retry an older window or reduce ChunkHours."
-                    }
-                    $completeness = 'Reconciled'
-                    $status = 'Observed'
-                    if ($missing) {
-                        $completeness = 'UnverifiableMissingData'
-                        $status = 'MissingData'
-                        Write-Warning "$id [$chunkStart, $chunkEnd): missing Totals; category summaries are null."
-                    }
-                    $records.Add((New-TransactionRecord -Type 'AccountTotal' -Count $total -Status $(
-                        if ($null -eq $total) { 'MissingData' } else { 'Observed' }
-                    ) -Completeness $completeness))
-                    foreach ($category in $categories) {
-                        $count = $null
-                        if (-not $missing) { $count = $sums[$category] }
-                        $records.Add((New-TransactionRecord -Type 'Summary' -Category $category -Count $count `
-                            -Status $status -Completeness $completeness))
-                    }
-                    if ($collectDetail) {
-                        foreach ($detail in $details) {
-                            $records.Add((New-TransactionRecord -Type 'Detail' -Category $detail.Category -Count $detail.Count `
-                                -Status $(if ($null -eq $detail.Count) { 'MissingData' } else { 'Observed' }) `
-                                -Completeness $completeness -Dimensions $detail.Dimensions -MappingStatus $detail.MappingStatus))
-                        }
-                    }
+                    $chunkEnd = $requestedEnd
                 }
                 if ($SummaryPeriod -eq 'Month') {
                     $monthlyRecords = @(ConvertTo-MonthlyRecord -Records $records.ToArray())
@@ -569,7 +631,7 @@ function Get-AzStorageTransactionMetric {
                 $template = $records[0]
                 try {
                     $capacityRecords = @(Get-StorageCapacityRecord -Template $template -Context $context `
-                        -StartTime $start -EndTime $end -ChunkHours $ChunkHours -SummaryPeriod $SummaryPeriod)
+                        -StartTime $start -EndTime $end -ChunkHours $ChunkHours -MaxRetry $MaxRetry -SummaryPeriod $SummaryPeriod)
                     if ($IncludeWorkloadBaseline) {
                         foreach ($record in $capacityRecords) { $baselineRecords.Add($record) }
                     }
@@ -584,6 +646,7 @@ function Get-AzStorageTransactionMetric {
                     $failure.Month = $null
                     $failure.SummaryPeriod = $SummaryPeriod
                     $failure.IsPartialMonth = $null
+                    $failure.QueryWindowHours = $null
                     $failure.RequestCount = $null
                     $failure.CountStatus = $null
                     $failure.QuantityBasis = 'AzureMonitorSampledUsedCapacity'
@@ -601,7 +664,7 @@ function Get-AzStorageTransactionMetric {
                 $snapshotStart = $snapshotEnd.AddHours(-24)
                 try {
                     Get-StorageCapacityRecord -Template $template -Context $context `
-                        -StartTime $snapshotStart -EndTime $snapshotEnd -ChunkHours 24 `
+                        -StartTime $snapshotStart -EndTime $snapshotEnd -ChunkHours 24 -MaxRetry $MaxRetry `
                         -SummaryPeriod Chunk -CurrentSnapshot
                 } catch {
                     $message = "Failed collecting current capacity for ${id}: $($_.Exception.Message)"
@@ -613,6 +676,7 @@ function Get-AzStorageTransactionMetric {
                     $failure.Month = $null
                     $failure.SummaryPeriod = 'Snapshot'
                     $failure.IsPartialMonth = $null
+                    $failure.QueryWindowHours = $null
                     $failure.RequestCount = $null
                     $failure.CountStatus = $null
                     $failure.QuantityBasis = 'AzureMonitorLatestUsedCapacity'

@@ -20,6 +20,11 @@ Describe 'Get-AzStorageTransactionMetric' {
         $script:splitBody = $null
         $script:metricBody = $null
         $script:httpFailure = $false
+        $script:responseStatuses = @()
+        $script:responseStatusIndex = 0
+        $script:includeRetryAfter = $true
+        $script:capAboveOneHour = $false
+        $script:mismatchAboveOneHour = $false
         $script:badAccount = $false
         $script:splitCalls = 0
         $script:failSecondChunk = $false
@@ -36,12 +41,32 @@ Describe 'Get-AzStorageTransactionMetric' {
                     location = 'eastus'; properties = @{ isHnsEnabled = $true; accessTier = 'Hot' }
                 } | ConvertTo-Json -Depth 10) }
             }
+            if ($script:responseStatusIndex -lt $script:responseStatuses.Count) {
+                $status = $script:responseStatuses[$script:responseStatusIndex]
+                $script:responseStatusIndex++
+                if ($status -ne 200) {
+                    $transient = [pscustomobject]@{ StatusCode = $status; Content = 'Transient response' }
+                    if ($script:includeRetryAfter) { $transient | Add-Member -NotePropertyName Headers -NotePropertyValue @{ 'Retry-After' = '0' } }
+                    return $transient
+                }
+            }
             if ($script:metricBody) { return [pscustomobject]@{ StatusCode = 200; Content = $script:metricBody } }
+            $decoded = [uri]::UnescapeDataString($Path)
+            $windowMatch = [regex]::Match($decoded, 'timespan=([^&]+)')
+            $window = $windowMatch.Groups[1].Value.Split('/')
+            $windowHours = ([datetimeoffset]$window[1] - [datetimeoffset]$window[0]).TotalHours
             $series = @()
             if ($Path -match '%24filter=') {
                 $script:splitCalls++
                 if ($script:failSecondChunk -and $script:splitCalls -eq 2) { throw 'Second chunk failed' }
                 if ($script:splitBody) { return [pscustomobject]@{ StatusCode = 200; Content = $script:splitBody } }
+                if ($script:capAboveOneHour -and $windowHours -gt 1) {
+                    $content = @{
+                        value = @(@{ name = @{ value = 'Transactions' }; unit = 'Count'
+                            errorCode = 'Success'; timeseries = @(1..10000 | ForEach-Object { @{ data = @() } }) })
+                    } | ConvertTo-Json -Depth 10
+                    return [pscustomobject]@{ StatusCode = 200; Content = $content }
+                }
                 foreach ($op in $script:operations) {
                     $series += @{
                         metadatavalues = @(
@@ -56,7 +81,9 @@ Describe 'Get-AzStorageTransactionMetric' {
                     }
                 }
             } else {
-                $series = @(@{ data = @(@{ total = $script:unsplit }) })
+                $unsplit = $script:unsplit
+                if ($script:mismatchAboveOneHour -and $windowHours -gt 1) { $unsplit++ }
+                $series = @(@{ data = @(@{ total = $unsplit }) })
             }
             if ($script:missingSecondChunk -and $script:splitCalls -eq 2) {
                 $series[0].data[0].total = $null
@@ -67,6 +94,7 @@ Describe 'Get-AzStorageTransactionMetric' {
             } | ConvertTo-Json -Depth 15) }
         }
     }
+    Mock Start-Sleep {}
 
     It 'returns a measured read summary and auditable dimensions' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeDetail)
@@ -264,6 +292,89 @@ Describe 'Get-AzStorageTransactionMetric' {
         } | ConvertTo-Json -Depth 10 -Compress
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
             Should Throw 'top=10000'
+    }
+
+    It 'retries a throttled request and succeeds when the next response is successful' {
+        $script:responseStatuses = @(429, 200)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop)
+        ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly
+        Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
+    }
+
+    It 'retries all supported server errors with exponential jitter when Retry-After is absent' {
+        $script:responseStatuses = @(500, 502, 503, 504, 200)
+        $script:includeRetryAfter = $false
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop)
+        ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 6 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -Scope It -Times 4 -Exactly -ParameterFilter { $Seconds -gt 0 }
+    }
+
+    It 'stops retrying repeated throttling and emits one account error' {
+        $script:responseStatuses = @(429, 429, 429)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+            -MaxRetry 2 -ErrorAction SilentlyContinue)
+        $rows.Count | Should Be 1
+        $rows[0].RecordType | Should Be 'Error'
+        $rows[0].Message | Should Match '429'
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -Scope It -Times 2 -Exactly
+    }
+
+    It 'does not retry a forbidden request' {
+        $script:responseStatuses = @(403)
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop } |
+            Should Throw '403'
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 1 -Exactly -ParameterFilter { $Path -match 'Microsoft.Insights' }
+        Assert-MockCalled Start-Sleep -Scope It -Times 0
+    }
+
+    It 'rejects recent data before making requests unless explicitly allowed' {
+        $script:end = [datetimeoffset]::UtcNow.AddHours(-2)
+        $script:end = $script:end.AddTicks(-($script:end.Ticks % [timespan]::TicksPerMinute))
+        $script:start = $script:end.AddHours(-1)
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end } |
+            Should Throw 'three hours'
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -AllowRecentData -ErrorAction Stop)
+        ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 3
+    }
+
+    It 'uses the requested large window when split and unsplit totals reconcile' {
+        $script:end = $script:start.AddHours(4)
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+            -ChunkHours 744 -SummaryPeriod Chunk -ErrorAction Stop)
+        $total = $rows | Where-Object RecordType -eq 'AccountTotal'
+        $total.RequestCount | Should Be 3
+        $total.QueryWindowHours | Should Be 4
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 1 -Exactly -ParameterFilter {
+            $Path -match 'Microsoft.Insights' -and $Path -match 'top=10000'
+        }
+    }
+
+    It 'halves a transaction window when the series cap is reached' {
+        $script:end = $script:start.AddHours(4)
+        $script:capAboveOneHour = $true
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+            -ChunkHours 4 -SummaryPeriod Chunk -ErrorAction Stop)
+        $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
+        $totals.Count | Should Be 4
+        @($totals | Where-Object QueryWindowHours -ne 1).Count | Should Be 0
+        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 7 -Exactly -ParameterFilter {
+            $Path -match 'Microsoft.Insights' -and $Path -match 'top=10000'
+        }
+    }
+
+    It 'halves a transaction window when split totals do not reconcile' {
+        $script:end = $script:start.AddHours(2)
+        $script:mismatchAboveOneHour = $true
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
+            -ChunkHours 2 -SummaryPeriod Chunk -ErrorAction Stop)
+        $totals = @($rows | Where-Object RecordType -eq 'AccountTotal')
+        $totals.Count | Should Be 2
+        @($totals | Where-Object QueryWindowHours -ne 1).Count | Should Be 0
     }
 
     It 'requires all requested dimensions' {
