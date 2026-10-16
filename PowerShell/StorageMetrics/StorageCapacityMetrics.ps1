@@ -17,13 +17,13 @@ function Get-StorageCapacityRecord {
         [Parameter(Mandatory)][datetimeoffset]$EndTime,
         [int]$ChunkHours,
         [string]$SummaryPeriod,
-        [switch]$CurrentSnapshot
+        [switch]$CurrentSnapshot,
+        [int]$MaxRetry = 4
     )
 
     function Get-CapacitySeries {
         param([string]$Path, [string]$Metric)
-        $response = Invoke-AzRestMethod -Path $Path -Method GET -DefaultProfile $Context -ErrorAction Stop
-        if ([int]$response.StatusCode -ne 200) { throw "$Metric HTTP $($response.StatusCode): $($response.Content)" }
+        $response = Invoke-StorageArmGet -Path $Path -Context $Context -MaxRetry $MaxRetry
         $body = $response.Content | ConvertFrom-Json -AsHashtable -ErrorAction Stop
         if ($body -isnot [hashtable] -or $body['interval'] -ne 'PT1H') {
             throw "$Metric must return PT1H intervals."
@@ -69,6 +69,90 @@ function Get-StorageCapacityRecord {
         return $points
     }
 
+    function Get-CapacityWindow {
+        param([datetimeoffset]$First, [datetimeoffset]$Last)
+        $format = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        $span = [uri]::EscapeDataString(
+            "$($First.ToString($format, [cultureinfo]::InvariantCulture))/$($Last.ToString($format, [cultureinfo]::InvariantCulture))"
+        )
+        $path = "$($Template.MetricResourceId)/providers/Microsoft.Insights/metrics" +
+            '?api-version=2023-10-01&metricnamespace=Microsoft.Storage%2FstorageAccounts%2FblobServices' +
+            "&aggregation=Average&interval=PT1H&timespan=$span&AutoAdjustTimegrain=false&ValidateDimensions=true"
+        $split = @(Get-CapacitySeries -Path (
+            $path + '&metricnames=BlobCapacity&top=10000&%24filter=' + [uri]::EscapeDataString("Tier eq '*' and BlobType eq '*'")
+        ) -Metric 'BlobCapacity')
+        if ($split.Count -ge 10000) {
+            return @{
+                NeedsSplit = $true
+                Message = 'Capacity series reached top=10000; completeness cannot be verified.'
+                Groups = @{}
+                ReconciliationMissing = $false
+            }
+        }
+        $totalSeries = @(Get-CapacitySeries -Path ($path + '&metricnames=BlobCapacity') -Metric 'BlobCapacity')
+        if ($totalSeries.Count -gt 1) { throw 'Unsplit BlobCapacity returned multiple series.' }
+        $totalPoints = @{}
+        if ($totalSeries.Count) { $totalPoints = Get-CapacityPoints $totalSeries[0] $First $Last }
+        $chunkGroups = @{}
+        foreach ($series in $split) {
+            $dimensions = @{}
+            foreach ($metadata in $series['metadatavalues']) {
+                $dimension = $metadata['name']['value']
+                if ($dimensions.ContainsKey($dimension)) { throw 'Duplicate capacity dimension.' }
+                $dimensions[$dimension] = $metadata['value']
+            }
+            if (-not $dimensions.ContainsKey('Tier') -or -not $dimensions.ContainsKey('BlobType')) {
+                throw 'BlobCapacity split is missing Tier or BlobType.'
+            }
+            $key = ConvertTo-Json -InputObject @($dimensions['Tier'], $dimensions['BlobType']) -Compress
+            if ($chunkGroups.ContainsKey($key)) { throw 'Duplicate capacity dimension series.' }
+            $chunkGroups[$key] = @{
+                Type = 'Capacity'; Metric = 'BlobCapacity'
+                Tier = $dimensions['Tier']; BlobType = $dimensions['BlobType']
+                Points = (Get-CapacityPoints $series $First $Last)
+            }
+        }
+        $reconciliationMissing = $false
+        for ($time = $First; $time -lt $Last; $time = $time.AddHours(1)) {
+            $key = $time.ToString('o')
+            $sum = [decimal]0
+            $missing = -not $chunkGroups.Count -or $null -eq $totalPoints[$key]
+            foreach ($group in $chunkGroups.Values) {
+                if ($null -eq $group.Points[$key]) { $missing = $true }
+                else { $sum += $group.Points[$key] }
+            }
+            if ($missing) { $reconciliationMissing = $true }
+            elseif ([math]::Abs($sum - $totalPoints[$key]) -gt [math]::Max([decimal]1, $totalPoints[$key] * [decimal]0.000000001)) {
+                return @{
+                    NeedsSplit = $true
+                    Message = 'Split BlobCapacity does not match unsplit hourly capacity.'
+                    Groups = @{}
+                    ReconciliationMissing = $false
+                }
+            }
+        }
+        $chunkGroups['AccountTotal'] = @{
+            Type = 'CapacityAccountTotal'; Metric = 'BlobCapacity'; Tier = $null
+            BlobType = $null; Points = $totalPoints
+        }
+        if ($Template.IsHnsEnabled -eq $true) {
+            $indexSeries = @(Get-CapacitySeries -Path ($path + '&metricnames=IndexCapacity') -Metric 'IndexCapacity')
+            if ($indexSeries.Count -gt 1) { throw 'IndexCapacity returned multiple series.' }
+            $indexPoints = @{}
+            if ($indexSeries.Count) { $indexPoints = Get-CapacityPoints $indexSeries[0] $First $Last }
+            $chunkGroups['Index'] = @{
+                Type = 'IndexCapacity'; Metric = 'IndexCapacity'; Tier = $null
+                BlobType = $null; Points = $indexPoints
+            }
+        }
+        return @{
+            NeedsSplit = $false
+            Message = $null
+            Groups = $chunkGroups
+            ReconciliationMissing = $reconciliationMissing
+        }
+    }
+
     $output = [System.Collections.Generic.List[object]]::new()
     for ($periodStart = $StartTime; $periodStart -lt $EndTime; $periodStart = $periodEnd) {
         $monthStart = [datetimeoffset]::new($periodStart.Year, $periodStart.Month, 1, 0, 0, 0, [timespan]::Zero)
@@ -76,72 +160,45 @@ function Get-StorageCapacityRecord {
         if ($periodEnd -gt $EndTime) { $periodEnd = $EndTime }
         $groups = @{}
         $reconciliationMissing = $false
+        $maxQueryWindowHours = 0
         for ($first = $periodStart; $first -lt $periodEnd; $first = $last) {
             $last = $first.AddHours($ChunkHours)
             if ($last -gt $periodEnd) { $last = $periodEnd }
-            $format = "yyyy-MM-dd'T'HH:mm:ss'Z'"
-            $span = [uri]::EscapeDataString(
-                "$($first.ToString($format, [cultureinfo]::InvariantCulture))/$($last.ToString($format, [cultureinfo]::InvariantCulture))"
-            )
-            $path = "$($Template.MetricResourceId)/providers/Microsoft.Insights/metrics" +
-                '?api-version=2023-10-01&metricnamespace=Microsoft.Storage%2FstorageAccounts%2FblobServices' +
-                "&aggregation=Average&interval=PT1H&timespan=$span&AutoAdjustTimegrain=false&ValidateDimensions=true"
-            $split = @(Get-CapacitySeries -Path (
-                $path + '&metricnames=BlobCapacity&top=10000&%24filter=' + [uri]::EscapeDataString("Tier eq '*' and BlobType eq '*'")
-            ) -Metric 'BlobCapacity')
-            if ($split.Count -ge 10000) { throw 'Capacity series reached top=10000; completeness cannot be verified.' }
-            $totalSeries = @(Get-CapacitySeries -Path ($path + '&metricnames=BlobCapacity') -Metric 'BlobCapacity')
-            if ($totalSeries.Count -gt 1) { throw 'Unsplit BlobCapacity returned multiple series.' }
-            $totalPoints = @{}
-            if ($totalSeries.Count) { $totalPoints = Get-CapacityPoints $totalSeries[0] $first $last }
-            $chunkGroups = @{}
-            foreach ($series in $split) {
-                $dimensions = @{}
-                foreach ($metadata in $series['metadatavalues']) {
-                    $dimension = $metadata['name']['value']
-                    if ($dimensions.ContainsKey($dimension)) { throw 'Duplicate capacity dimension.' }
-                    $dimensions[$dimension] = $metadata['value']
+            $pendingWindows = [System.Collections.Generic.Stack[object]]::new()
+            $pendingWindows.Push([pscustomobject]@{ First = $first; Last = $last })
+            while ($pendingWindows.Count) {
+                $window = $pendingWindows.Pop()
+                $windowResult = Get-CapacityWindow -First $window.First -Last $window.Last
+                if ($windowResult.NeedsSplit) {
+                    $windowHours = ($window.Last - $window.First).TotalHours
+                    if ($windowHours -le 1) {
+                        throw "$($windowResult.Message) Minimum one-hour window reached."
+                    }
+                    $splitHours = [math]::Floor($windowHours / 2)
+                    $splitAt = $window.First.AddHours($splitHours)
+                    if ($splitAt -le $window.First -or $splitAt -ge $window.Last) {
+                        throw "$($windowResult.Message) The window cannot be split further."
+                    }
+                    $pendingWindows.Push([pscustomobject]@{ First = $splitAt; Last = $window.Last })
+                    $pendingWindows.Push([pscustomobject]@{ First = $window.First; Last = $splitAt })
+                    continue
                 }
-                if (-not $dimensions.ContainsKey('Tier') -or -not $dimensions.ContainsKey('BlobType')) {
-                    throw 'BlobCapacity split is missing Tier or BlobType.'
-                }
-                $key = ConvertTo-Json -InputObject @($dimensions['Tier'], $dimensions['BlobType']) -Compress
-                if ($chunkGroups.ContainsKey($key)) { throw 'Duplicate capacity dimension series.' }
-                $chunkGroups[$key] = @{
-                    Type = 'Capacity'; Metric = 'BlobCapacity'
-                    Tier = $dimensions['Tier']; BlobType = $dimensions['BlobType']
-                    Points = (Get-CapacityPoints $series $first $last)
-                }
-            }
-            for ($time = $first; $time -lt $last; $time = $time.AddHours(1)) {
-                $key = $time.ToString('o')
-                $sum = [decimal]0
-                $missing = -not $chunkGroups.Count -or $null -eq $totalPoints[$key]
-                foreach ($group in $chunkGroups.Values) {
-                    if ($null -eq $group.Points[$key]) { $missing = $true }
-                    else { $sum += $group.Points[$key] }
-                }
-                if ($missing) { $reconciliationMissing = $true }
-                elseif ([math]::Abs($sum - $totalPoints[$key]) -gt [math]::Max([decimal]1, $totalPoints[$key] * [decimal]0.000000001)) {
-                    throw 'Split BlobCapacity does not match unsplit hourly capacity.'
-                }
-            }
-            $chunkGroups['AccountTotal'] = @{ Type = 'CapacityAccountTotal'; Metric = 'BlobCapacity'; Tier = $null; BlobType = $null; Points = $totalPoints }
-            if ($Template.IsHnsEnabled -eq $true) {
-                $indexSeries = @(Get-CapacitySeries -Path ($path + '&metricnames=IndexCapacity') -Metric 'IndexCapacity')
-                if ($indexSeries.Count -gt 1) { throw 'IndexCapacity returned multiple series.' }
-                $indexPoints = @{}
-                if ($indexSeries.Count) { $indexPoints = Get-CapacityPoints $indexSeries[0] $first $last }
-                $chunkGroups['Index'] = @{ Type = 'IndexCapacity'; Metric = 'IndexCapacity'; Tier = $null; BlobType = $null; Points = $indexPoints }
-            }
-            foreach ($key in $chunkGroups.Keys) {
-                $group = $chunkGroups[$key]
-                if (-not $groups.ContainsKey($key)) {
-                    $groups[$key] = @{ Type = $group.Type; Metric = $group.Metric; Tier = $group.Tier; BlobType = $group.BlobType; Points = @{} }
-                }
-                foreach ($time in $group.Points.Keys) {
-                    if ($groups[$key].Points.ContainsKey($time)) { throw 'Overlapping capacity query windows.' }
-                    $groups[$key].Points[$time] = $group.Points[$time]
+                $maxQueryWindowHours = [math]::Max(
+                    $maxQueryWindowHours, ($window.Last - $window.First).TotalHours
+                )
+                $reconciliationMissing = $reconciliationMissing -or $windowResult.ReconciliationMissing
+                foreach ($key in $windowResult.Groups.Keys) {
+                    $group = $windowResult.Groups[$key]
+                    if (-not $groups.ContainsKey($key)) {
+                        $groups[$key] = @{
+                            Type = $group.Type; Metric = $group.Metric; Tier = $group.Tier
+                            BlobType = $group.BlobType; Points = @{}
+                        }
+                    }
+                    foreach ($time in $group.Points.Keys) {
+                        if ($groups[$key].Points.ContainsKey($time)) { throw 'Overlapping capacity query windows.' }
+                        $groups[$key].Points[$time] = $group.Points[$time]
+                    }
                 }
             }
         }
@@ -182,6 +239,7 @@ function Get-StorageCapacityRecord {
                 $record.Month = $null
                 $record.SummaryPeriod = 'Snapshot'
                 $record.IsPartialMonth = $null
+                $record.QueryWindowHours = $null
                 $record.QuantityBasis = 'AzureMonitorLatestUsedCapacity'
                 $record.CompletenessStatus = 'SnapshotNotMonthlyCoverage'
                 $record.CapacityStatus = 'Unavailable'
@@ -220,6 +278,9 @@ function Get-StorageCapacityRecord {
             $record.Month = $periodStart.ToString('yyyy-MM', [cultureinfo]::InvariantCulture)
             $record.SummaryPeriod = $SummaryPeriod
             $record.IsPartialMonth = $periodStart -ne $monthStart -or $periodEnd -ne $monthStart.AddMonths(1)
+            $record.QueryWindowHours = if ($SummaryPeriod -eq 'Chunk' -and -not $CurrentSnapshot) {
+                [decimal]$maxQueryWindowHours
+            } else { $null }
             $record.ExpectedHours = $expected
             $record.ObservedHours = $observed
             $record.MissingHours = $expected - $observed

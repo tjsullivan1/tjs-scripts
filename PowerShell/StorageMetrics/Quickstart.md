@@ -72,7 +72,24 @@ pricing. Transactions are observed requests, **not guaranteed billable operation
 snapshot; it is not last month's average capacity.
 
 Start is inclusive and end is exclusive. Metrics have a 93-day retention window.
-The default output groups transactions by UTC calendar month.
+The default output groups transactions by UTC calendar month. Unless
+`-AllowRecentData` is supplied, the exclusive end must be at least three hours
+before now so Azure Monitor has time to ingest metrics; this switch does not
+allow future end times.
+
+The default `-ChunkHours` is 24; set it from 1 through 744 to choose a larger
+maximum window (up to a 31-day UTC month). A mismatch between split and unsplit
+totals or a `top=10000` series cap causes automatic halving down to one hour,
+then a fail-closed error if it still cannot be verified. `-SummaryPeriod Chunk`
+returns successful transaction windows, with their actual durations in
+`QueryWindowHours`. Capacity chunk records report the largest successful hourly
+query window used in their aggregate.
+
+Transient ARM GET responses (429, 500, 502, 503, 504) are retried four times by
+default. `-MaxRetry` changes that number; `Retry-After` is honored when present,
+otherwise exponential backoff with jitter is used. Azure PowerShell may also
+retry 429 responses internally; `AZURE_PS_HTTP_MAX_RETRIES_FOR_429` controls
+that separate Az retry layer and can extend the total wait.
 
 ## 3. Get actual billed costs for one account
 
@@ -140,6 +157,7 @@ plus current capacity, then model the current calendar month:
 ```powershell
 $recentEnd = [datetimeoffset]::UtcNow
 $recentEnd = $recentEnd.AddTicks(-($recentEnd.Ticks % [timespan]::TicksPerHour))
+$recentEnd = $recentEnd.AddHours(-3)
 $recentStart = $recentEnd.AddDays(-7)
 $modelMonth = [datetimeoffset]::UtcNow.ToString('yyyy-MM')
 

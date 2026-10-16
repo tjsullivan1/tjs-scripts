@@ -39,6 +39,12 @@ IDs. Prepare those contexts before collection. Missing or ambiguous contexts
 produce explicit account failures. The function passes `-DefaultProfile` to every
 ARM request and never calls `Set-AzContext`, signs in, or changes context settings.
 `Invoke-AzRestMethod -Path` uses the selected context's Azure environment.
+ARM GET requests retry HTTP 429, 500, 502, 503 and 504 up to four times by
+default. The collector honors `Retry-After`; otherwise it uses exponential
+backoff with jitter. `-MaxRetry` changes the collector-level retry count, with
+zero disabling those retries. Azure PowerShell may retry 429 responses
+internally; `AZURE_PS_HTTP_MAX_RETRIES_FOR_429` controls that separate layer and
+can increase the total wait.
 
 ## Collect multiple accounts and subscriptions
 
@@ -65,11 +71,13 @@ $results = @(Get-AzStorageTransactionMetric -ResourceId $ids `
 
 `StartTime` is inclusive and `EndTime` is exclusive. Both must be whole minutes.
 The start must be within the platform metric retention window (93 days), and the
-end cannot be in the future. Prefer completed historical windows because recent
-metrics can still arrive between the split and unsplit queries. Duplicate IDs
-(including differences in casing) are collected once. Account discovery is
-deliberately not implicit: passing IDs makes the subscription/account scope
-auditable.
+end cannot be in the future. By default, `EndTime` must also be at least three
+hours old to allow Azure Monitor ingestion; `-AllowRecentData` opts out of that
+guard but does not permit a future end. Prefer completed historical windows
+because recent metrics can still arrive between the split and unsplit queries.
+Duplicate IDs (including differences in casing) are collected once. Account
+discovery is deliberately not implicit: passing IDs makes the subscription/
+account scope auditable.
 
 ## Output and exports
 
@@ -79,10 +87,15 @@ API/response/tier/geo/authentication/transaction-type combination in that month.
 Counts for identical dimensions are combined across verified chunks; different
 dimension values are never merged.
 
-The collector still queries and reconciles small windows, at most 24 hours by
-default; `-ChunkHours 1` uses hourly queries without changing the monthly output.
-Queries stop at UTC month boundaries. `-SummaryPeriod Chunk` returns the original
-per-query-window records instead of monthly totals.
+The collector queries and reconciles windows of at most 24 hours by default.
+`-ChunkHours` accepts 1–744 hours (up to a full 31-day UTC month); queries still
+stop at UTC month boundaries. If split totals do not reconcile or a split query
+reaches `top=10000`, the affected window is halved and retried down to one hour.
+Persistent mismatches or a cap at one hour fail closed. `-SummaryPeriod Chunk`
+returns one record set per successful transaction query window;
+`QueryWindowHours` reports the effective window size. Capacity records report
+the largest successful PT1H query window used for their chunk-period aggregate.
+Monthly roll-ups and their month-boundary handling are unchanged.
 
 For arbitrary date ranges, the first/last month can be partial. `Month` identifies
 the UTC calendar month, `StartTime`/`EndTime` give the actual collected range, and
@@ -102,6 +115,7 @@ historical dates.
 | `ConfigurationObservedAtUtc`, `ConfigurationHistoryStatus` | Snapshot time and `CurrentSnapshotOnly`; configuration history is not reconstructed |
 | `StartTime`, `EndTime` | Actual collected period boundaries in UTC, serialized as ISO 8601 strings |
 | `SummaryPeriod` | `Month` (default) or `Chunk` |
+| `QueryWindowHours` | Effective successful request window for Chunk output; null on month totals and other record types |
 | `Month` | UTC calendar month, `yyyy-MM`; null on errors |
 | `IsPartialMonth` | Whether monthly coverage is less than the full month; null for chunk/error rows |
 | `Category` | Operation category; null on account totals and errors |
@@ -940,11 +954,12 @@ instead (the error record then cannot be emitted). Invalid inputs fail before
 collection. Missing data produces warnings/statuses rather than account errors;
 check completeness before aggregating even with `-ErrorAction Stop`.
 
-For a reconciliation mismatch or series-cap failure, retry a completed older
-window or reduce `-ChunkHours` to 1. If even an hourly query fails, collection is
+The collector halves a window automatically for reconciliation mismatches and
+series-cap failures. If the problem persists at one hour, collection is
 explicitly blocked rather than returning truncated numbers. For HTTP 403 check
-management-plane RBAC; for 429 retry later. The script creates no Azure resources,
-so there is nothing to clean up or roll back.
+management-plane RBAC; transient 429/5xx responses are retried using
+`-MaxRetry`. The script creates no Azure resources, so there is nothing to clean
+up or roll back.
 
 ## Offline verification
 
