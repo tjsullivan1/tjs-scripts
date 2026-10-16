@@ -94,7 +94,7 @@ function Invoke-StorageArmGet {
                         [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$retryTime)) {
                     throw 'ARM returned an invalid Retry-After header.'
                 }
-                $retrySeconds = [math]::Max(0, ($retryTime.ToUniversalTime() - [datetimeoffset]::UtcNow).TotalSeconds)
+                $retrySeconds = [math]::Max(0, ($retryTime.ToUniversalTime() - (Get-UtcNow)).TotalSeconds)
             }
         } else {
             $retrySeconds = [math]::Pow(2, $retry) + (Get-Random -Minimum 0 -Maximum 1000) / 1000.0

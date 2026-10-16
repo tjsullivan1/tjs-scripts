@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - 'PowerShell/StorageMetrics/**'
+      - '.github/workflows/storagemetrics-tests.yml'
   pull_request:
     paths:
       - 'PowerShell/StorageMetrics/**'
+      - '.github/workflows/storagemetrics-tests.yml'
 
 permissions:
   contents: read
@@ -19,14 +21,13 @@ jobs:
       - name: Install PowerShell modules
         shell: pwsh
         run: |
-          Install-Module Pester -RequiredVersion 3.4.0 -SkipPublisherCheck -Force
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -SkipPublisherCheck -Force -ErrorAction Stop
           Install-Module PSScriptAnalyzer -SkipPublisherCheck -Force
       - name: Run Pester tests
         shell: pwsh
         run: |
-          Import-Module Pester -RequiredVersion 3.4.0
-          $r = Invoke-Pester -Script .\PowerShell\StorageMetrics\tests -PassThru
-          if ($r.FailedCount) { throw "$($r.FailedCount) tests failed." }
+          Import-Module Pester -RequiredVersion 5.7.1 -ErrorAction Stop
+          Invoke-Pester -Path .\PowerShell\StorageMetrics\tests -Output Detailed -CI
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |

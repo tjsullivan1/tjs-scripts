@@ -112,7 +112,7 @@ function Get-StorageCapacityRecord {
                 $record.CapacityReconciliationStatus = if ($group.Type -eq 'IndexCapacity') { 'NotApplicable' } else { 'MissingSamples' }
                 if ($null -ne $selectedTime) {
                     $record.CapacitySampleTimeUtc = $selectedTime.ToString('o')
-                    $record.CapacitySampleAgeHours = ([datetimeoffset]::UtcNow - $selectedTime).TotalHours
+                    $record.CapacitySampleAgeHours = ((Get-UtcNow) - $selectedTime).TotalHours
                     $record.CurrentUsedBytes = $group.Points[$selectedTime.ToString('o')]
                     $record.CurrentUsedGiB = $record.CurrentUsedBytes / [decimal]1073741824
                     $record.CapacityStatus = if ($group.Type -eq 'IndexCapacity') { 'LatestSample' } else { 'LatestReconciledSample' }
