@@ -8,6 +8,9 @@ on:
     paths:
       - 'PowerShell/StorageMetrics/**'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: windows-latest
