@@ -3,14 +3,15 @@
 function Get-AzStorageRedundancyCost {
     <#
     .SYNOPSIS
-    Prices a current Blob or opt-in ADLS Gen2 footprint under four redundancy options.
+    Prices a current Blob or opt-in ADLS Gen2 footprint under six redundancy options.
     .DESCRIPTION
     Consumes objects from Get-AzStorageTransactionMetric, not overlapping totals.
     Holds current capacity constant and scales observed requests to ModelMonth.
     Fetches current public USD consumption prices independently of collection.
     Returns line items and partial scenario subtotals, never a complete invoice
-    estimate. Retrieval, bandwidth, replication, feature and migration costs are
-    excluded explicitly. Endpoint schedules, premium and unresolved tiers are not guessed.
+    estimate. Retrieval, bandwidth, feature and migration costs are excluded
+    explicitly. Geo-replication transfer is optional and caller-supplied.
+    Endpoint schedules, premium and unresolved tiers are not guessed.
     .PARAMETER Records
     Collector objects, or its JSON imported with timestamps preserved as strings.
     Requires CurrentCapacity, AccountTotal and Detail records for each account.
@@ -27,6 +28,11 @@ function Get-AzStorageRedundancyCost {
     BlobFlat (default), BlobHns (Blob endpoint including NFS/SFTP), or AdlsGen2
     (DFS endpoint). HNS modes require a known HNS-enabled Standard StorageV2 account.
     Applies to all supplied accounts/requests; split mixed-endpoint workloads first.
+    .PARAMETER Scenario
+    Redundancy scenarios to estimate. Defaults to all six supported options.
+    .PARAMETER EstimateGeoReplicationFromWriteBytes
+    Caller-supplied replicated write volume in GiB per modeled month. Adds a
+    catalog-priced transfer line for geo-redundant scenarios only.
     .EXAMPLE
     . .\PowerShell\StorageMetrics\Get-AzStorageRedundancyCost.ps1
     Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10'
@@ -36,6 +42,10 @@ function Get-AzStorageRedundancyCost {
     .EXAMPLE
     Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10' -PricingMode BlobHns
     Models the supplied HNS workload using the Blob endpoint schedule (including NFS/SFTP).
+    .EXAMPLE
+    Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10' `
+        -Scenario GRS, RA-GZRS -EstimateGeoReplicationFromWriteBytes 120
+    Models selected scenarios with a caller-supplied monthly replicated-write assumption.
     .OUTPUTS
     System.Management.Automation.PSCustomObject
     #>
@@ -45,14 +55,30 @@ function Get-AzStorageRedundancyCost {
         [Parameter(Mandatory)][ValidatePattern('^\d{4}-(0[1-9]|1[0-2])$')][string]$ModelMonth,
         [ValidateSet('Hot', 'Cool', 'Cold', 'Archive')][string]$LegacyTargetTier,
         [switch]$AssumeFlatNamespace,
-        [ValidateSet('BlobFlat', 'BlobHns', 'AdlsGen2')][string]$PricingMode = 'BlobFlat'
+        [ValidateSet('BlobFlat', 'BlobHns', 'AdlsGen2')][string]$PricingMode = 'BlobFlat',
+        [ValidateSet('LRS', 'ZRS', 'GRS', 'GZRS', 'RA-GRS', 'RA-GZRS')]
+        [string[]]$Scenario = @('LRS', 'ZRS', 'GRS', 'GZRS', 'RA-GRS', 'RA-GZRS'),
+        [decimal]$EstimateGeoReplicationFromWriteBytes
     )
+
+    $selectedScenarios = @($Scenario | Select-Object -Unique)
+    $geoReplicationScenarios = @('GRS', 'GZRS', 'RA-GRS', 'RA-GZRS')
+    $estimateGeoReplication = $PSBoundParameters.ContainsKey('EstimateGeoReplicationFromWriteBytes')
+    if ($estimateGeoReplication -and $EstimateGeoReplicationFromWriteBytes -lt 0) {
+        throw 'EstimateGeoReplicationFromWriteBytes must be nonnegative.'
+    }
+    $geoReplicationCatalogNeeded = $estimateGeoReplication -and
+        @($selectedScenarios | Where-Object { $_ -in $geoReplicationScenarios }).Count -gt 0
 
     $modelStart = [datetimeoffset]::ParseExact("$ModelMonth-01", 'yyyy-MM-dd',
         [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal)
     $modelHours = [decimal]($modelStart.AddMonths(1) - $modelStart).TotalHours
     $priceTime = [datetimeoffset]::UtcNow
     $catalogs = @{}
+    $skuRedundancyMap = @{
+        LRS = 'LRS'; ZRS = 'ZRS'; GRS = 'GRS'; GZRS = 'GZRS'
+        RAGRS = 'RA-GRS'; RAGZRS = 'RA-GZRS'
+    }
     if (@($Records | Where-Object RecordType -in @('Error', 'CurrentCapacityError')).Count) {
         throw 'Resolve collector failures before pricing; failed accounts must not be silently omitted.'
     }
@@ -71,6 +97,9 @@ function Get-AzStorageRedundancyCost {
             'BlobFlat' { "(productName eq 'Blob Storage' or productName eq 'General Block Blob v2')" }
             'BlobHns' { "(productName eq 'General Block Blob v2 Hierarchical Namespace' or productName eq 'Azure Data Lake Storage Gen2 Hierarchical Namespace')" }
             'AdlsGen2' { "productName eq 'Azure Data Lake Storage Gen2 Hierarchical Namespace'" }
+        }
+        if ($geoReplicationCatalogNeeded) {
+            $products = "($products or productName eq 'Storage - Bandwidth')"
         }
         $filter = "serviceName eq 'Storage' and armRegionName eq '$Region' and priceType eq 'Consumption' and $products"
         $uri = 'https://prices.azure.com/api/retail/prices?api-version=2023-01-01-preview&%24filter=' +
@@ -93,13 +122,23 @@ function Get-AzStorageRedundancyCost {
     }
 
     function New-EstimateRecord {
-        param([object]$Account, [string]$Scenario, [string]$Type, [string]$Component)
+        param(
+            [object]$Account, [string]$Scenario, [string]$Type, [string]$Component,
+            [switch]$IncludeGeoReplicationTransfer
+        )
+        $excludedCharges = @('Retrieval', 'Bandwidth', 'GeoReplicationTransfer',
+            'EarlyDeletion', 'Features', 'Migration', 'Discounts', 'Taxes')
+        if ($IncludeGeoReplicationTransfer) {
+            $excludedCharges = @($excludedCharges | Where-Object { $_ -ne 'GeoReplicationTransfer' })
+        }
         [pscustomobject][ordered]@{
             RecordType = $Type; ResourceId = $Account.ResourceId
             StorageAccountName = $Account.StorageAccountName; Location = $Account.Location
             CurrentAccountKind = $Account.AccountKind; CurrentSkuName = $Account.SkuName
             TargetAccountKind = 'StorageV2'; Redundancy = $Scenario; ModelMonth = $ModelMonth
+            IsCurrentConfiguration = $null; DeltaFromCurrent = $null; DeltaFromCurrentReason = $null
             Component = $Component; Tier = $null; Quantity = $null; QuantityUnit = $null
+            GeoType = $null
             QuantityBasis = $null; SourceStartTime = $null; SourceEndTime = $null
             CapacitySampleTimeUtc = $null; ScaleFactor = $null
             NamespaceBasis = $null
@@ -113,7 +152,7 @@ function Get-AzStorageRedundancyCost {
             EstimatedCost = $null; PricedSubtotal = $null; TotalRecurringCost = $null
             OneTimeCost = $null; Status = $null; Message = $null
             UnpricedComponents = $null
-            ExcludedCharges = 'Retrieval;Bandwidth;GeoReplicationTransfer;EarlyDeletion;Features;Migration;Discounts;Taxes'
+            ExcludedCharges = $excludedCharges -join ';'
         }
     }
 
@@ -163,6 +202,12 @@ function Get-AzStorageRedundancyCost {
 
     foreach ($accountGroup in ($snapshots | Group-Object ResourceId)) {
         $account = $accountGroup.Group[0]
+        $skuMatch = [regex]::Match([string]$account.SkuName,
+            '_(RAGZRS|RAGRS|GZRS|GRS|ZRS|LRS)$',
+            [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        $currentRedundancy = if ($skuMatch.Success) {
+            $skuRedundancyMap[$skuMatch.Groups[1].Value.ToUpperInvariant()]
+        } else { $null }
         $flatNamespace = $account.IsHnsEnabled -eq $false -or
             ($null -eq $account.IsHnsEnabled -and $AssumeFlatNamespace)
         $hnsMode = $PricingMode -ne 'BlobFlat'
@@ -228,16 +273,21 @@ function Get-AzStorageRedundancyCost {
         }
         $region = [string]$account.Location
         if (-not $catalogs.ContainsKey($region)) { $catalogs[$region] = @(Get-RetailCatalog -Region $region) }
-        foreach ($scenario in @('ZRS', 'GRS', 'GZRS', 'RA-GRS')) {
+        $scenarioOutput = [System.Collections.Generic.List[object]]::new()
+        $scenarioSummaries = [System.Collections.Generic.List[object]]::new()
+        foreach ($scenario in $selectedScenarios) {
+            $scenarioIncludesGeoReplicationTransfer = $estimateGeoReplication -and
+                $scenario -in $geoReplicationScenarios
             $product = switch ($PricingMode) {
-                'BlobFlat' { if ($scenario -in @('ZRS', 'GZRS')) { 'General Block Blob v2' } else { 'Blob Storage' } }
+                'BlobFlat' { if ($scenario -in @('ZRS', 'GZRS', 'RA-GZRS')) { 'General Block Blob v2' } else { 'Blob Storage' } }
                 'BlobHns' { 'General Block Blob v2 Hierarchical Namespace' }
                 'AdlsGen2' { 'Azure Data Lake Storage Gen2 Hierarchical Namespace' }
             }
             $lines = [System.Collections.Generic.List[object]]::new()
             foreach ($capacityGroup in ($accountGroup.Group | Group-Object Tier)) {
                 $capacity = $capacityGroup.Group[0]
-                $line = New-EstimateRecord $account $scenario 'Estimate' 'Capacity'
+                $line = New-EstimateRecord -Account $account -Scenario $scenario -Type 'Estimate' -Component 'Capacity' `
+                    -IncludeGeoReplicationTransfer:$scenarioIncludesGeoReplicationTransfer
                 $line.NamespaceBasis = $namespaceBasis
                 $line.Tier = $capacity.Tier
                 $line.QuantityBasis = 'CurrentCapacityHeldConstantForModelMonth'
@@ -252,7 +302,7 @@ function Get-AzStorageRedundancyCost {
                     -not @($capacityGroup.Group | Where-Object BlobType -notin $supportedCapacityTypes).Count) {
                     if ($line.Tier -notin @('Hot', 'Cool', 'Cold', 'Archive')) {
                         $line.Status = 'TierUnresolved'
-                    } elseif ($line.Tier -eq 'Archive' -and $scenario -in @('ZRS', 'GZRS')) {
+                    } elseif ($line.Tier -eq 'Archive' -and $scenario -in @('ZRS', 'GZRS', 'RA-GZRS')) {
                         $line.Status = 'IneligibleArchive'
                     } elseif (@($capacityGroup.Group | Where-Object {
                         $_.CapacityStatus -ne 'LatestReconciledSample' -or $null -eq $_.CurrentUsedGiB
@@ -266,13 +316,15 @@ function Get-AzStorageRedundancyCost {
                         }
                         $line.ProductName = $product
                         $line.SkuName = "$($line.Tier) $scenario"
-                        Set-RetailCost $line $catalogs[$region] @("$($line.Tier) $scenario Data Stored") '1 GB/Month'
+                        Set-RetailCost -Line $line -Catalog $catalogs[$region] `
+                            -MeterNames @("$($line.Tier) $scenario Data Stored") -Unit '1 GB/Month'
                     }
                 }
                 $lines.Add($line)
             }
             if ($hnsMode) {
-                $line = New-EstimateRecord $account $scenario 'Estimate' 'HnsIndexCapacity'
+                $line = New-EstimateRecord -Account $account -Scenario $scenario -Type 'Estimate' -Component 'HnsIndexCapacity' `
+                    -IncludeGeoReplicationTransfer:$scenarioIncludesGeoReplicationTransfer
                 $line.NamespaceBasis = $namespaceBasis
                 $line.Tier = 'Hot'
                 $line.QuantityUnit = 'GiBMonth'
@@ -288,17 +340,36 @@ function Get-AzStorageRedundancyCost {
                         if ($index.CapacityStatus -eq 'LatestSample' -and $null -ne $index.CurrentUsedGiB) {
                             if ([decimal]$index.CurrentUsedGiB -lt 0) { throw 'Index capacity cannot be negative.' }
                             $line.Quantity = [decimal]$index.CurrentUsedGiB
-                            Set-RetailCost $line $catalogs[$region] @("Hot $scenario Index") '1 GB/Month'
+                            Set-RetailCost -Line $line -Catalog $catalogs[$region] `
+                                -MeterNames @("Hot $scenario Index") -Unit '1 GB/Month'
                         }
                     }
                 }
                 $lines.Add($line)
             }
+            if ($scenarioIncludesGeoReplicationTransfer) {
+                $line = New-EstimateRecord -Account $account -Scenario $scenario `
+                    -Type 'Estimate' -Component 'GeoReplicationTransfer' `
+                    -IncludeGeoReplicationTransfer
+                $line.NamespaceBasis = $namespaceBasis
+                $line.Quantity = [decimal]$EstimateGeoReplicationFromWriteBytes * [decimal]1.073741824
+                $line.QuantityUnit = 'GB'
+                $line.QuantityBasis = 'CallerSuppliedAssumption'
+                $line.ProductName = 'Storage - Bandwidth'
+                $line.SkuName = 'Geo-Replication'
+                $line.Message = 'Caller-supplied GiB/month converted to decimal GB to match the retail meter unit.'
+                Set-RetailCost -Line $line -Catalog $catalogs[$region] `
+                    -MeterNames @('Geo-Replication Data Transfer') -Unit '1 GB'
+                $lines.Add($line)
+            }
             foreach ($group in ($details | Group-Object Tier, Category, GeoType)) {
                 $detail = $group.Group[0]
-                $line = New-EstimateRecord $account $scenario 'Estimate' $detail.Category
+                $line = New-EstimateRecord -Account $account -Scenario $scenario -Type 'Estimate' `
+                    -Component $detail.Category `
+                    -IncludeGeoReplicationTransfer:$scenarioIncludesGeoReplicationTransfer
                 $line.NamespaceBasis = $namespaceBasis
                 $line.Tier = $detail.Tier
+                $line.GeoType = $detail.GeoType
                 if ($account.AccountKind -eq 'Storage' -and $LegacyTargetTier) { $line.Tier = $LegacyTargetTier }
                 $line.QuantityUnit = 'EstimatedOperations'
                 $line.QuantityBasis = 'ObservedRequestsScaledToModelMonthNotBillableCounts'
@@ -310,7 +381,9 @@ function Get-AzStorageRedundancyCost {
                 if ($null -eq $scale -or @($group.Group | Where-Object {
                     $_.CompletenessStatus -ne 'Reconciled' -or $null -eq $_.RequestCount
                 }).Count) { $line.Status = 'RequestsUnavailable' }
-                elseif ($detail.GeoType -eq 'Secondary' -and $scenario -ne 'RA-GRS') { $line.Status = 'IneligibleSecondaryReads' }
+                elseif ($detail.GeoType -eq 'Secondary' -and $scenario -notin @('RA-GRS', 'RA-GZRS')) {
+                    $line.Status = 'IneligibleSecondaryReads'
+                }
                 elseif ($detail.Category -eq 'Free') {
                     $line.Quantity = [decimal]0
                     foreach ($d in $group.Group) { $line.Quantity += [decimal]$d.RequestCount * $scale }
@@ -328,10 +401,15 @@ function Get-AzStorageRedundancyCost {
                     }
                     $line.ProductName = $product
                     $line.SkuName = "$($line.Tier) $scenario"
-                    $writeSku = if ($scenario -eq 'RA-GRS') { 'GRS' } else { $scenario }
+                    $writeSku = if ($scenario -eq 'RA-GRS') { 'GRS' }
+                        elseif ($scenario -eq 'RA-GZRS') { 'GZRS' }
+                        else { $scenario }
+                    $meterSku = if ($line.Tier -eq 'Cold' -and $scenario -in @('RA-GRS', 'RA-GZRS')) {
+                        $scenario
+                    } else { $writeSku }
                     $names = switch ($detail.Category) {
                         'Reads' { @("$($line.Tier) Read Operations", "$($line.Tier) ZRS Read Operations", "$($line.Tier) $scenario Read Operations") }
-                        'Writes' { @("$($line.Tier) $writeSku Write Operations") }
+                        'Writes' { @("$($line.Tier) $meterSku Write Operations") }
                         'ListAndCreateContainer' { @("$writeSku List and Create Container Operations") }
                         'AllOtherOperations' { @('All Other Operations') }
                     }
@@ -342,8 +420,8 @@ function Get-AzStorageRedundancyCost {
                         }
                         $names = switch ($detail.Category) {
                             'Reads' { @("$($line.Tier) $scenario Read Operations") }
-                            'Writes' { @("$($line.Tier) $scenario Write Operations") }
-                            'ListAndCreateContainer' { @("Hot $scenario Write Operations") }
+                            'Writes' { @("$($line.Tier) $meterSku Write Operations") }
+                            'ListAndCreateContainer' { @("Hot $writeSku Write Operations") }
                             'AllOtherOperations' { @("Hot $scenario Other Operations") }
                         }
                     } elseif ($PricingMode -eq 'AdlsGen2') {
@@ -355,10 +433,7 @@ function Get-AzStorageRedundancyCost {
                                 if ($line.Tier -eq 'Cold') { @("Cold $scenario Read Operations") }
                                 else { @("$($line.Tier) Read Operations") }
                             }
-                            'Writes' {
-                                $meterSku = if ($line.Tier -eq 'Cold') { $scenario } else { $writeSku }
-                                @("$($line.Tier) $meterSku Write Operations")
-                            }
+                            'Writes' { @("$($line.Tier) $meterSku Write Operations") }
                             'IterativeReads' { @("Hot $writeSku Iterative Read Operations") }
                             'IterativeWrites' {
                                 $unit = '100'
@@ -368,12 +443,18 @@ function Get-AzStorageRedundancyCost {
                             'AllOtherOperations' { @('Hot Other Operations') }
                         }
                     }
-                    Set-RetailCost $line $catalogs[$region] $names $unit
+                    Set-RetailCost -Line $line -Catalog $catalogs[$region] -MeterNames $names -Unit $unit
                 }
                 $lines.Add($line)
             }
-            $summary = New-EstimateRecord $account $scenario 'Scenario' 'PricedSubtotal'
+            $summary = New-EstimateRecord -Account $account -Scenario $scenario `
+                -Type 'Scenario' -Component 'PricedSubtotal' `
+                -IncludeGeoReplicationTransfer:$scenarioIncludesGeoReplicationTransfer
             $summary.NamespaceBasis = $namespaceBasis
+            $summary.IsCurrentConfiguration = [string]::Equals(
+                [string]$scenario, [string]$currentRedundancy,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
             $summary.Status = 'PartialEstimate'
             $summary.QuantityBasis = 'CurrentCapacityHeldConstantAndObservedRequestsScaledToModelMonth'
             $summary.ScaleFactor = $scale
@@ -385,6 +466,14 @@ function Get-AzStorageRedundancyCost {
                 $_.Status -notin @('PlanningEstimate', 'DocumentedFree')
             } | ForEach-Object { "$($_.Component):$($_.Status)" }) -join ';')
             if (@($lines | Where-Object Status -like 'Ineligible*').Count) { $summary.Status = 'Ineligible' }
+            $componentKeys = @($lines | Where-Object { $null -ne $_.EstimatedCost } | ForEach-Object {
+                ConvertTo-Json -InputObject @($_.Component, $_.Tier, $_.GeoType) -Compress
+            } | Sort-Object -Unique)
+            $scenarioSummaries.Add([pscustomobject]@{
+                Redundancy = $scenario
+                Summary = $summary
+                ComponentKeys = $componentKeys
+            })
             foreach ($line in $lines) {
                 if ($null -ne $line.EstimatedCost) {
                     if ($null -eq $summary.PricedSubtotal) { $summary.PricedSubtotal = [decimal]0 }
@@ -394,11 +483,40 @@ function Get-AzStorageRedundancyCost {
                     $line.Message = "Not priced: $($line.Status). No zero cost is inferred."
                     Write-Warning "$($account.StorageAccountName) $scenario $($line.Component): $($line.Message)"
                 }
-                $line
+                $scenarioOutput.Add($line)
             }
             $summary.Message = 'Subtotal includes only priced capacity and request estimates. Excluded charges and unsupported inputs prevent a complete recurring-cost total. Catalog presence does not prove regional deployment eligibility.'
             if (-not $details.Count -and $null -eq $scale) { $summary.Message += ' No usable observed request period supplied.' }
-            $summary
+            $scenarioOutput.Add($summary)
         }
+
+        $currentSummary = $scenarioSummaries | Where-Object Redundancy -eq $currentRedundancy | Select-Object -First 1
+        foreach ($scenarioResult in $scenarioSummaries) {
+            $summary = $scenarioResult.Summary
+            if (-not $currentRedundancy) {
+                $summary.DeltaFromCurrentReason = 'CurrentRedundancyUnknown'
+            } elseif ($null -eq $currentSummary) {
+                $summary.DeltaFromCurrentReason = 'CurrentScenarioNotSelected'
+            } elseif ($null -eq $currentSummary.Summary.PricedSubtotal) {
+                $summary.DeltaFromCurrentReason = 'CurrentSubtotalUnavailable'
+            } elseif ($null -eq $summary.PricedSubtotal) {
+                $summary.DeltaFromCurrentReason = 'ScenarioSubtotalUnavailable'
+            } elseif (-not $scenarioResult.ComponentKeys.Count -or -not $currentSummary.ComponentKeys.Count) {
+                $summary.DeltaFromCurrentReason = 'NoPricedComponentsToCompare'
+            } else {
+                $differentComponents = @($scenarioResult.ComponentKeys | Where-Object {
+                    $_ -notin $currentSummary.ComponentKeys
+                }).Count -gt 0 -or @($currentSummary.ComponentKeys | Where-Object {
+                    $_ -notin $scenarioResult.ComponentKeys
+                }).Count -gt 0
+                if ($differentComponents) {
+                    $summary.DeltaFromCurrentReason = 'PricedComponentsDifferFromCurrent'
+                } else {
+                    $summary.DeltaFromCurrent = [decimal]$summary.PricedSubtotal -
+                        [decimal]$currentSummary.Summary.PricedSubtotal
+                }
+            }
+        }
+        foreach ($row in $scenarioOutput) { $row }
     }
 }
