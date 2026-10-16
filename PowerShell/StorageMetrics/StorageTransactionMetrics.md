@@ -695,8 +695,10 @@ files containing overlapping charges cannot be reliably deduplicated without
 stable charge IDs.
 
 Live retrieval uses the asynchronous Cost Details report API. It honors
-`Retry-After`, limits polling to 30 attempts/10 minutes per report, validates
-ARM polling locations, checks the CSV manifest and downloads every partition.
+`Retry-After`, limits polling to 30 attempts and 10 minutes by default per
+report, validates ARM polling locations, checks the CSV manifest and downloads
+every partition. Set `-CostReportTimeoutMinutes` from 1 through 60 to change the
+deadline; the 30-attempt safety limit remains in place.
 Uncompressed CSV reports are supported. Signed download URLs are not output
 or persisted, and temporary CSV downloads are deleted even on failure.
 The function does not create storage accounts, scheduled exports or diagnostic

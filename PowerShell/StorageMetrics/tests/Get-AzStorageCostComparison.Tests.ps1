@@ -27,6 +27,7 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:downloadFailure = $false
         $script:pollCalls = 0
         $script:pendingPolls = 0
+        $script:retryAfter = '1'
         $script:badManifest = $false
         Mock Get-AzContext {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub }; Environment = @{
@@ -41,14 +42,14 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
                 $hostName = if ($script:badPollHost) { 'untrusted.example' } else { 'management.azure.com' }
                 return [pscustomobject]@{StatusCode=202; Content=''; Headers=@(
                     [pscustomobject]@{Key='Location'; Value=@("https://$hostName/subscriptions/$script:sub/providers/Microsoft.CostManagement/costDetailsOperationResults/report?api-version=2022-05-01")}
-                    [pscustomobject]@{Key='Retry-After'; Value=@('1')}
+                    [pscustomobject]@{Key='Retry-After'; Value=@($script:retryAfter)}
                 )}
             }
             if ($Uri -match 'costDetailsOperationResults') {
                 $script:pollCalls++
                 if ($script:pollCalls -le $script:pendingPolls) {
                     return [pscustomobject]@{StatusCode=202;Content='';Headers=@(
-                        [pscustomobject]@{Key='Retry-After';Value=@('1')}
+                        [pscustomobject]@{Key='Retry-After';Value=@($script:retryAfter)}
                     )}
                 }
                 if ($script:badManifest) {
@@ -237,6 +238,55 @@ Describe 'Storage cost comparison through Get-AzStorageTransactionMetric' {
         $script:pendingPolls = 100
         { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCostComparison -ErrorAction Stop } | Should Throw 'polling limit'
         $script:downloadCalls | Should Be 0
+    }
+
+    It 'allows a configurable Cost Details polling timeout up to sixty minutes' {
+        $script:retryAfter = '601'
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start `
+            -EndTime $script:end -IncludeCostComparison -CostReportTimeoutMinutes 20 -ErrorAction Stop)
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 1
+        Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 601 }
+    }
+
+    It 'uses a ten-minute Cost Details polling timeout by default' {
+        $script:retryAfter = '601'
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start `
+            -EndTime $script:end -IncludeCostComparison -ErrorAction SilentlyContinue)
+        @($rows | Where-Object RecordType -eq 'CostError').Count | Should Be 1
+        @($rows | Where-Object RecordType -eq 'CostMeter').Count | Should Be 0
+    }
+
+    It 'rejects Cost Details polling timeouts greater than sixty minutes' {
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start `
+            -EndTime $script:end -IncludeCostComparison -CostReportTimeoutMinutes 61 } |
+            Should Throw 'validate argument'
+        $script:metricCalls | Should Be 0
+        $script:reportCalls | Should Be 0
+    }
+
+    It 'filters unrelated rows before parsing dates and handles a 50000-row billing CSV efficiently' {
+        $ids = @($script:id)
+        $writer = [IO.StreamWriter]::new($script:csv, $false, [Text.UTF8Encoding]::new($false))
+        try {
+            $writer.WriteLine('"ResourceId","Date","MeterId","MeterName","MeterSubCategory","ProductName","Quantity","UnitOfMeasure","ChargeType","CostInBillingCurrency","BillingCurrency"')
+            for ($index = 1; $index -lt 50000; $index++) {
+                $writer.WriteLine("/subscriptions/$script:sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/unrelated-$index,not-a-date,,,,,,,,,")
+            }
+            $writer.WriteLine("$script:id,$($script:start.ToString('yyyy-MM-dd')),read-meter,Hot Read Operations,Blob Storage,Blob Storage - Hot LRS,0.0003,10K,Usage,0.00012,USD")
+        } finally {
+            $writer.Dispose()
+        }
+
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $rows = @(Get-AzStorageTransactionMetric -ResourceId $ids -StartTime $script:start `
+            -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
+        $timer.Stop()
+
+        $meters = @($rows | Where-Object RecordType -eq 'CostMeter')
+        $meters.Count | Should Be 1
+        $meters[0].ResourceId | Should Be $script:id
+        $meters[0].BilledOperationCount | Should Be 3
+        $timer.Elapsed.TotalSeconds | Should BeLessThan 30
     }
 
     It 'rejects incomplete report manifests rather than comparing a partial download' {

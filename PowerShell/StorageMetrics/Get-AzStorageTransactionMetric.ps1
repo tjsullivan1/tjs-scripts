@@ -42,6 +42,8 @@ function Get-AzStorageTransactionMetric {
     .PARAMETER IncludeCostComparison
     Adds actual billed usage comparisons for completed UTC months. Uses the
     Cost Details report API; unsupported billing offers can supply CSV instead.
+    .PARAMETER CostReportTimeoutMinutes
+    Maximum Cost Details report polling time in minutes (1 to 60). Defaults to 10.
     .PARAMETER IncludeCostDetail
     Preserves each matched daily billing row in additional CostDetail records.
     Requires IncludeCostComparison or CostDetailsCsv. Detail, meter and comparison
@@ -88,6 +90,9 @@ function Get-AzStorageTransactionMetric {
         [switch]$IncludeCurrentCapacity,
 
         [switch]$IncludeCostComparison,
+
+        [ValidateRange(1, 60)]
+        [int]$CostReportTimeoutMinutes = 10,
 
         [switch]$IncludeCostDetail,
 
@@ -689,7 +694,8 @@ function Get-AzStorageTransactionMetric {
         }
         if ($compareCosts -and $comparisonRecords.Count) {
             $costRecords = @(Get-StorageTransactionCostComparison -Records $comparisonRecords.ToArray() `
-                -Contexts $contexts -CsvPaths $CostDetailsCsv -IncludeDetail:$IncludeCostDetail)
+                -Contexts $contexts -CsvPaths $CostDetailsCsv -IncludeDetail:$IncludeCostDetail `
+                -CostReportTimeoutMinutes $CostReportTimeoutMinutes)
             if ($IncludeWorkloadBaseline) {
                 foreach ($record in $costRecords) { $baselineRecords.Add($record) }
             }
