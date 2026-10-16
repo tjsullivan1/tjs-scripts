@@ -256,9 +256,11 @@ The planning assumptions are explicit:
 - Use current retail prices, even if `ModelMonth` is historical. Historical
   invoice validation is not performed. Rates, meter IDs, effective dates, volume
   bands and fetch timestamps are retained.
+- Estimate one or more of `LRS`, `ZRS`, `GRS`, `GZRS`, `RA-GRS` and `RA-GZRS`
+  with `-Scenario`; the default returns all six. `BlobFlat` uses `Blob Storage`
+  for LRS/GRS/RA-GRS and `General Block Blob v2` for ZRS/GZRS/RA-GZRS.
 - Default to `-PricingMode BlobFlat`: standard flat-namespace block/append Blob
-  accounts using `Blob Storage` for GRS/RA-GRS and `General Block Blob v2` for
-  ZRS/GZRS. HNS is opt-in as described below. Premium, page blobs and unresolved
+  accounts. HNS is opt-in as described below. Premium, page blobs and unresolved
   access tiers remain unpriced.
 - Apply graduated capacity volume bands **per account/tier**, not across the
   subscription. A different contractual aggregation scope requires a separate
@@ -282,6 +284,49 @@ $estimate = @(Get-AzStorageRedundancyCost -Records $results `
     -ModelMonth '2026-10' -LegacyTargetTier Hot -AssumeFlatNamespace)
 ```
 
+### Redundancy scenarios, baseline deltas and geo-replication transfer
+
+By default, the estimator returns six scenarios: `LRS`, `ZRS`, `GRS`, `GZRS`,
+`RA-GRS` and `RA-GZRS`. Use `-Scenario` to select any subset:
+
+```powershell
+$estimate = @(Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10' `
+    -Scenario LRS, RA-GZRS)
+```
+
+`IsCurrentConfiguration` marks the scenario matching the redundancy suffix in
+the current account `SkuName` (for example, `Standard_RAGRS` maps to `RA-GRS`).
+`DeltaFromCurrent` is target `PricedSubtotal` minus current-configuration
+`PricedSubtotal`. It is populated only when both rows have non-null subtotals
+and exactly the same set of priced component/tier/geo-type keys. Otherwise it
+stays null and `DeltaFromCurrentReason` explains why, including an unknown or
+unselected current scenario, missing subtotal, or different priced components.
+This is a delta between priced partial subtotals, not a forecast of the bill.
+
+For an explicit caller-supplied replicated-write assumption, use
+`-EstimateGeoReplicationFromWriteBytes` with a nonnegative GiB/month quantity:
+
+```powershell
+$estimate = @(Get-AzStorageRedundancyCost -Records $results -ModelMonth '2026-10' `
+    -EstimateGeoReplicationFromWriteBytes 1200)
+```
+
+The estimator does not derive this volume from request counts. For `GRS`,
+`GZRS`, `RA-GRS` and `RA-GZRS`, it adds a `GeoReplicationTransfer` line using
+the exact catalog identity `Storage - Bandwidth` / `Geo-Replication` /
+`Geo-Replication Data Transfer` / `1 GB`. The input GiB is converted to decimal
+GB to match the meter unit. An East US Retail Prices API lookup on 2026-10-16
+verified that identity; the current price is read from the live catalog, never
+hard-coded. That lookup returned `Cold RA-GZRS Write Operations` under the
+`Cold RA-GZRS` SKU but no matching Hot RA-GZRS write identity. Hot RA-GZRS writes
+therefore remain `PriceUnavailable` unless the selected regional catalog contains
+an exact matching product/SKU/meter row; no rate is borrowed from GZRS. If a
+matching transfer identity is absent in the selected region/product, its line
+also remains `PriceUnavailable`. For these scenario rows,
+`GeoReplicationTransfer` is removed from
+`ExcludedCharges`; without the option, no transfer line is added and the
+existing exclusion remains.
+
 ### ADLS Gen2 and HNS endpoint selection
 
 HNS does not identify the workload's endpoint. Select the schedule explicitly,
@@ -298,7 +343,7 @@ $blobHns = @(Get-AzStorageRedundancyCost -Records $results `
 
 | `PricingMode` | Required namespace and account | Data/operation catalog product |
 | --- | --- | --- |
-| `BlobFlat` (default) | Flat Standard BlobStorage/GPv2, or explicit GPv1 tier projection | `Blob Storage` (GRS/RA-GRS); `General Block Blob v2` (ZRS/GZRS) |
+| `BlobFlat` (default) | Flat Standard BlobStorage/GPv2, or explicit GPv1 tier projection | `Blob Storage` (LRS/GRS/RA-GRS); `General Block Blob v2` (ZRS/GZRS/RA-GZRS) |
 | `BlobHns` | Known HNS-enabled Standard StorageV2 | `General Block Blob v2 Hierarchical Namespace` |
 | `AdlsGen2` | Known HNS-enabled Standard StorageV2, DFS endpoint workload | `Azure Data Lake Storage Gen2 Hierarchical Namespace` |
 
@@ -343,9 +388,11 @@ A measured zero is retained, but still requires an unambiguous catalog rate.
 | `Unmapped` | Unsupported | Unsupported |
 
 `Tier` retains the observed request tier; `SkuName` identifies the selected price
-tier, including Hot-only other/list/iterative meters. RA-GRS meter names differ by
-endpoint and tier; selection uses the published names within the exact product
-and SKU, never a rate copied from another redundancy or namespace.
+tier, including Hot-only other/list/iterative meters. RA-GRS and RA-GZRS meter
+names can differ from their data-storage SKU labels; selection uses published
+names within the exact product and SKU, never a rate copied from another
+redundancy or namespace. RA-GZRS write lines require an exact catalog identity;
+an absent identity is left unpriced.
 The existing request-tier gate remains: paid categories require an observed
 Hot/Cool/Cold tier; unresolved or Archive request tiers remain unpriced.
 
@@ -364,9 +411,10 @@ for size-dependent and iterative billing.
 
 ### Eligibility and output
 
-Archive under ZRS/GZRS and measured secondary reads under non-RA options mark the
-scenario `Ineligible`. A catalog entry does not prove deployment eligibility in
-the region; confirm Azure support and your recovery requirements separately.
+Archive under ZRS/GZRS/RA-GZRS and measured secondary reads under non-RA options
+mark the scenario `Ineligible`. RA-GZRS allows secondary reads. A catalog entry
+does not prove deployment eligibility in the region; confirm Azure support and
+your recovery requirements separately.
 Unknown APIs, unsupported endpoint categories, missing rates, ambiguous catalog
 identities and unavailable inputs remain unpriced with warnings. Supported HNS
 iterative/size-dependent categories are priced only as request-based approximations.
@@ -377,8 +425,11 @@ HTTP, invalid catalog and pagination failures terminate explicitly.
 | Pricing output | Meaning |
 | --- | --- |
 | `RecordType` | `Estimate`: individual capacity/index/request component; `Scenario`: account/SKU subtotal |
-| `Redundancy`, `TargetAccountKind`, `ModelMonth` | ZRS, GRS, GZRS or RA-GRS; modeled GPv2 account and month |
+| `Redundancy`, `TargetAccountKind`, `ModelMonth` | LRS, ZRS, GRS, GZRS, RA-GRS or RA-GZRS; modeled GPv2 account and month |
+| `IsCurrentConfiguration` | Whether the scenario matches the redundancy parsed from current `SkuName` |
+| `DeltaFromCurrent`, `DeltaFromCurrentReason` | Target-minus-current priced-subtotal difference when component sets match; otherwise null and its reason |
 | `Quantity`, `QuantityUnit`, `QuantityBasis` | Constant GiBMonth capacity or scaled EstimatedOperations, with the assumption identified |
+| `GeoType` | Primary or Secondary request dimension retained for priced-component comparison |
 | `SourceStartTime`, `SourceEndTime`, `ScaleFactor` | Observed request coverage and explicit monthly scaling factor |
 | `CapacitySampleTimeUtc` | Capacity sample used; not a historical monthly average |
 | `NamespaceBasis`, `LegacyTargetTierAssumption` | Current namespace evidence or explicitly selected model assumptions |
@@ -390,9 +441,10 @@ HTTP, invalid catalog and pagination failures terminate explicitly.
 | `Status`, `UnpricedComponents`, `ExcludedCharges` | Planning/partial/ineligible status, unresolved lines and excluded charge components |
 
 **These are partial planning estimates**, not complete monthly bills. Retrieval,
-network bandwidth, geo-replication transfer, early deletion, features, one-time
-migration/conversion costs, discounts, reservations and taxes are excluded
-explicitly, not set to zero. Never sum line estimates and scenario subtotals.
+network bandwidth, early deletion, features, one-time migration/conversion costs,
+discounts, reservations and taxes are excluded explicitly, not set to zero.
+Geo-replication transfer is also excluded unless its explicit assumption is
+provided as described above. Never sum line estimates and scenario subtotals.
 `Scenario.Status = PartialEstimate` remains intentional even if all supported
 lines are priced. It does not mean that public ADLS data-capacity rates are
 unavailable. Inspect `Component = Capacity` for quantity, cost and status, and
@@ -1004,19 +1056,20 @@ month/account isolation, opt-in behavior and CSV/JSON output.
 
 ## Remaining pricing-model gaps
 
-These extensions collect historical capacity and preserve richer billing
-evidence; they do not implement independent price selection or redundancy scenarios.
-Validate the current configuration against comparable billing before applying
-ZRS, GRS, GZRS or RA-GRS prices. Keep reservations/negotiated rates separate,
-and do not use chargeback dollars per GB or arbitrary SKU multipliers as prices.
-Retrieval, replication, early deletion and endpoint history may still require
-already-existing logs/inventory/application telemetry or reviewed supplements.
-Billing-derived quantities are labeled as such, not independent Monitor evidence.
+The estimator provides partial public-rate comparisons for six redundancy
+scenarios, but does not establish a bill, subscription eligibility, or deployment
+support. Validate quantities against comparable billing and keep
+reservations/negotiated rates separate; do not use chargeback dollars per GB or
+arbitrary SKU multipliers as prices. Retrieval, early deletion, feature,
+migration, seeding and rehydration costs remain outside the recurring subtotal.
+Endpoint history may require existing logs, inventory, application telemetry or
+reviewed supplements. Billing-derived quantities are labeled as such, not
+independent Monitor evidence.
 
-Archive data cannot remain unchanged under ZRS/GZRS. Secondary-read-dependent
-workloads cannot retain their access pattern under non-RA targets. Check region,
-kind/performance and architecture eligibility before ranking costs, and keep
-migration, seeding and rehydration costs separate from recurring monthly run rate.
+Archive data cannot remain unchanged under ZRS/GZRS/RA-GZRS. Secondary-read-
+dependent workloads cannot retain their access pattern under non-RA targets.
+Check region, kind/performance and architecture eligibility before ranking
+costs.
 
 ## Live validation
 

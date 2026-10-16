@@ -169,6 +169,7 @@ $estimate = @(Get-AzStorageRedundancyCost -Records $recent `
 
 $estimate | Where-Object RecordType -eq 'Scenario' |
     Select-Object StorageAccountName, Redundancy, Currency, PricedSubtotal,
+        IsCurrentConfiguration, DeltaFromCurrent, DeltaFromCurrentReason,
         PricingMode, Status, UnpricedComponents, ExcludedCharges
 ```
 
@@ -179,12 +180,26 @@ You must decide whether that recent workload represents normal activity.
 Month boundaries can split the collected records; keep all records in `$recent`.
 Pass typed objects (as above) or imported JSON, **not CSV strings**, to pricing.
 
+The default returns six scenarios: `LRS`, `ZRS`, `GRS`, `GZRS`, `RA-GRS` and
+`RA-GZRS`. Select a subset with `-Scenario LRS, RA-GZRS`. `IsCurrentConfiguration`
+matches the redundancy suffix in the current account `SkuName`; `DeltaFromCurrent`
+is target minus current priced subtotal, and remains null with a reason if either
+subtotal is missing or the scenarios price different component sets.
+
+Geo-replication transfer is excluded by default. To add a caller-provided monthly
+assumption (GiB; never inferred from request counts), pass
+`-EstimateGeoReplicationFromWriteBytes 1200`. A matching `GeoReplicationTransfer`
+line is added only for GRS/GZRS/RA-GRS/RA-GZRS scenarios. The estimator converts
+GiB to decimal GB to match the live Retail Prices API meter; if that exact meter
+is unavailable, the line stays `PriceUnavailable`.
+
 `PricedSubtotal` includes only priced components, not a complete monthly bill.
-Retrieval, bandwidth, geo-replication transfer, early deletion, feature charges,
-migration costs, discounts, reservations and taxes are excluded. Unsupported
-premium/page-blob inputs, ambiguous tiers and unknown APIs remain unpriced;
-some scenarios can be ineligible. Inspect the status and exclusions, not just
-the subtotal. Do not add `Estimate` line costs to `Scenario` subtotals.
+Retrieval, network bandwidth, early deletion, feature charges, migration costs,
+discounts, reservations and taxes are excluded. Geo-replication transfer remains
+excluded unless the explicit assumption above is supplied. Unsupported
+premium/page-blob inputs, ambiguous tiers and unknown APIs remain unpriced; some
+scenarios can be ineligible. Inspect the status and exclusions, not just the
+subtotal. Do not add `Estimate` line costs to `Scenario` subtotals.
 
 For an **ADLS Gen2 account with HNS enabled**, explicitly choose the workload's
 endpoint schedule. Neither command changes the account:
