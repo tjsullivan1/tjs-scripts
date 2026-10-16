@@ -13,7 +13,8 @@ function Get-StorageTransactionCostComparison {
         [Parameter(Mandatory)][object[]]$Records,
         [Parameter(Mandatory)][object[]]$Contexts,
         [string[]]$CsvPaths,
-        [switch]$IncludeDetail
+        [switch]$IncludeDetail,
+        [ValidateRange(1, 60)][int]$CostReportTimeoutMinutes = 10
     )
 
     function Get-CostField {
@@ -58,7 +59,7 @@ function Get-StorageTransactionCostComparison {
     }
 
     function Get-LiveCostRows {
-        param([object]$Template, [object]$Context)
+        param([object]$Template, [object]$Context, [int]$TimeoutMinutes)
         $subscription = $Template.SubscriptionId
         $armUri = [uri]$Context.Environment.ResourceManagerUrl
         $payload = @{
@@ -71,7 +72,7 @@ function Get-StorageTransactionCostComparison {
         $response = Invoke-AzRestMethod -Path (
             "/subscriptions/$subscription/providers/Microsoft.CostManagement/generateCostDetailsReport?api-version=2022-05-01"
         ) -Method POST -Payload $payload -DefaultProfile $Context -ErrorAction Stop
-        $deadline = [datetimeoffset]::UtcNow.AddMinutes(10)
+        $deadline = [datetimeoffset]::UtcNow.AddMinutes($TimeoutMinutes)
         $pollCount = 0
         while ([int]$response.StatusCode -eq 202) {
             $pollCount++
@@ -134,7 +135,17 @@ function Get-StorageTransactionCostComparison {
 
     function New-CostMeter {
         param([object]$Row, [object]$Template, [datetimeoffset]$UsageDate)
-        $record = $Template.PSObject.Copy()
+        $record = @{
+            Template = $Template
+            ResourceId = $Template.ResourceId
+            Category = $null
+            BillingTier = $null
+            BillingRedundancy = $null
+            BillingQuantityKind = $null
+            BilledOperationCount = $null
+            NormalizedBilledQuantity = $null
+            NormalizedBilledUnit = $null
+        }
         $record.RecordType = 'CostMeter'
         $record.Category = $null
         $record.RequestCount = $null
@@ -272,6 +283,30 @@ function Get-StorageTransactionCostComparison {
         return $record
     }
 
+    function ConvertTo-CostMeterRecord {
+        param([hashtable]$Data)
+        $record = $Data.Template.PSObject.Copy()
+        foreach ($field in $Data.Keys) {
+            if ($field -eq 'Template') { continue }
+            if ($null -ne $record.PSObject.Properties[$field]) {
+                $record.$field = $Data[$field]
+            } else {
+                $record | Add-Member -MemberType NoteProperty -Name $field -Value $Data[$field]
+            }
+        }
+        $record
+    }
+
+    function Get-CostLookupKey {
+        param([string]$ResourceId, [string]$Part1, [string]$Part2)
+        $keyParts = @(
+            ([string]$ResourceId).ToLowerInvariant()
+            ([string]$Part1).ToLowerInvariant()
+            ([string]$Part2).ToLowerInvariant()
+        )
+        ConvertTo-Json -InputObject $keyParts -Compress
+    }
+
     $costSource = if ($CsvPaths) { 'Csv' } else { 'CostDetailsApi' }
     $billingCoverage = if ($CsvPaths) { 'CsvCoverageUnverified' } else { 'ReportPartitionsRead' }
     $numericContextFields = @('EffectivePrice', 'UnitPrice', 'PayGPrice', 'ExchangeRatePricingToBilling')
@@ -294,15 +329,29 @@ function Get-StorageTransactionCostComparison {
         catch { $csvFailure = $_.Exception.Message }
     }
     $totals = @($Records | Where-Object RecordType -eq 'AccountTotal')
+    $summariesByResourceMonth = @{}
+    foreach ($summary in ($Records | Where-Object RecordType -eq 'Summary')) {
+        $key = Get-CostLookupKey -ResourceId $summary.ResourceId -Part1 $summary.Month -Part2 'Summary'
+        if (-not $summariesByResourceMonth.ContainsKey($key)) {
+            $summariesByResourceMonth[$key] = [System.Collections.Generic.List[object]]::new()
+        }
+        $summariesByResourceMonth[$key].Add($summary)
+    }
     foreach ($period in ($totals | Group-Object SubscriptionId, Month)) {
         $templates = $period.Group
+        $templatesByResourceId = @{}
+        foreach ($template in $templates) {
+            $key = ([string]$template.ResourceId).ToLowerInvariant()
+            if (-not $templatesByResourceId.ContainsKey($key)) { $templatesByResourceId[$key] = $template }
+        }
         try {
             if ($csvFailure) { throw $csvFailure }
             $sourceRows = $csvRows
             if (-not $CsvPaths) {
                 $matchingContexts = @($Contexts | Where-Object { $_.Subscription.Id -eq $templates[0].SubscriptionId })
                 if ($matchingContexts.Count -ne 1) { throw 'Cost comparison requires one saved context for its subscription.' }
-                $sourceRows = @(Get-LiveCostRows -Template $templates[0] -Context $matchingContexts[0])
+                $sourceRows = @(Get-LiveCostRows -Template $templates[0] -Context $matchingContexts[0] `
+                    -TimeoutMinutes $CostReportTimeoutMinutes)
             }
             $meters = [System.Collections.Generic.List[object]]::new()
             $unassignedCount = 0
@@ -313,8 +362,9 @@ function Get-StorageTransactionCostComparison {
                 }
                 $resource = Get-CostField $row @('ResourceId', 'InstanceId')
                 if (-not $resource) { $unassignedCount++; continue }
-                $template = @($templates | Where-Object ResourceId -eq $resource)
-                if (-not $template.Count) { continue }
+                $templateKey = $resource.ToLowerInvariant()
+                if (-not $templatesByResourceId.ContainsKey($templateKey)) { continue }
+                $template = $templatesByResourceId[$templateKey]
                 $dateText = Get-CostField $row @('Date', 'UsageDate', 'UsageStart', 'UsageDateTime') -Required
                 $date = [datetimeoffset]::MinValue
                 [string[]]$formats = @('yyyy-MM-dd', 'MM/dd/yyyy', 'M/d/yyyy', 'yyyy-MM-ddTHH:mm:ssZ',
@@ -323,13 +373,14 @@ function Get-StorageTransactionCostComparison {
                         [cultureinfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$date)) {
                     throw 'Invalid or unsupported cost details usage date.'
                 }
-                if ($date -lt [datetimeoffset]$template[0].StartTime -or $date -ge [datetimeoffset]$template[0].EndTime) { continue }
-                $meters.Add((New-CostMeter -Row $row -Template $template[0] -UsageDate $date))
+                if ($date -lt [datetimeoffset]$template.StartTime -or $date -ge [datetimeoffset]$template.EndTime) { continue }
+                $meters.Add((New-CostMeter -Row $row -Template $template -UsageDate $date))
             }
             if ($unassignedCount) {
                 Write-Warning "$unassignedCount unassigned cost rows cannot be attributed to selected accounts and were excluded."
             }
             $output = [System.Collections.Generic.List[object]]::new()
+            $costMetersByResourceCategory = @{}
             $meterGroups = $meters | Group-Object -CaseSensitive -Property {
                 $groupKey = @($_.ResourceId.ToLowerInvariant(), $_.MeterId,
                     $_.MeterName, $_.MeterSubCategory, $_.ProductName, $_.UnitOfMeasure,
@@ -338,7 +389,7 @@ function Get-StorageTransactionCostComparison {
                 ConvertTo-Json -InputObject $groupKey -Compress
             }
             foreach ($group in $meterGroups) {
-                $record = $group.Group[0].PSObject.Copy()
+                $record = ConvertTo-CostMeterRecord -Data $group.Group[0]
                 $record.BilledQuantity = [decimal]0
                 $record.ActualCost = [decimal]0
                 $record.HasNegativeUsageQuantity = $false
@@ -355,23 +406,29 @@ function Get-StorageTransactionCostComparison {
                 if ($null -ne $record.BilledOperationCount) { $record.BilledOperationCount = $count }
                 if ($null -ne $record.NormalizedBilledQuantity) { $record.NormalizedBilledQuantity = $normalized }
                 $output.Add($record)
+                $key = Get-CostLookupKey -ResourceId $record.ResourceId -Part1 $record.Category -Part2 $record.ChargeType
+                if (-not $costMetersByResourceCategory.ContainsKey($key)) {
+                    $costMetersByResourceCategory[$key] = [System.Collections.Generic.List[object]]::new()
+                }
+                $costMetersByResourceCategory[$key].Add($record)
             }
             if ($IncludeDetail) {
                 foreach ($meter in $meters) {
-                    $detail = $meter.PSObject.Copy()
+                    $detail = ConvertTo-CostMeterRecord -Data $meter
                     $detail.RecordType = 'CostDetail'
                     $output.Add($detail)
                 }
             }
             foreach ($template in $templates) {
-                $summaries = @($Records | Where-Object {
-                    $_.ResourceId -eq $template.ResourceId -and $_.Month -eq $template.Month -and $_.RecordType -eq 'Summary'
-                })
+                $summaryKey = Get-CostLookupKey -ResourceId $template.ResourceId -Part1 $template.Month -Part2 'Summary'
+                $summaries = if ($summariesByResourceMonth.ContainsKey($summaryKey)) {
+                    $summariesByResourceMonth[$summaryKey]
+                } else { @() }
                 foreach ($summary in $summaries) {
-                    $matched = @($output | Where-Object {
-                        $_.RecordType -eq 'CostMeter' -and $_.ResourceId -eq $summary.ResourceId -and
-                        $_.Category -eq $summary.Category -and $_.ChargeType -eq 'Usage'
-                    })
+                    $matchedKey = Get-CostLookupKey -ResourceId $summary.ResourceId -Part1 $summary.Category -Part2 'Usage'
+                    $matched = if ($costMetersByResourceCategory.ContainsKey($matchedKey)) {
+                        $costMetersByResourceCategory[$matchedKey]
+                    } else { @() }
                     $currencyGroups = @($matched | Group-Object Currency)
                     if (-not $currencyGroups.Count) { $currencyGroups = @([pscustomobject]@{Group=@();Name=$null}) }
                     foreach ($currencyGroup in $currencyGroups) {

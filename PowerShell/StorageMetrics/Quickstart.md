@@ -98,9 +98,14 @@ Use the completed-month variables above. Choose **one** billing source:
 ```powershell
 # Cost Details report API, when supported by your billing offer.
 $billed = @(Get-AzStorageTransactionMetric -ResourceId $accountId `
-    -StartTime $monthStart -EndTime $monthEnd `
+    -StartTime $monthStart -EndTime $monthEnd -CostReportTimeoutMinutes 20 `
     -IncludeCostComparison -ErrorAction Stop)
 ```
+
+The Cost Details report polling deadline defaults to 10 minutes. Use
+`-CostReportTimeoutMinutes` to choose 1–60 minutes when a report takes longer;
+the 30-poll safety limit still applies. This parameter affects only live report
+polling, not CSV imports.
 
 For unsupported offers or an existing usage-details download/export, supply
 complete actual-cost CSV files instead:
