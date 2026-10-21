@@ -34,9 +34,78 @@ Describe 'StorageMetrics module interface' {
         )
         foreach ($type in $types) {
             $format = Get-FormatData -TypeName "StorageMetrics.$type"
-            @($format.FormatViewDefinition).Count | Should -Be 1
-            $format.FormatViewDefinition[0].Control.GetType().Name | Should -Be 'TableControl'
-            ($format.FormatViewDefinition[0].Control.Headers.Count -le 5) | Should -Be $true
+            $typeView = @($format.FormatViewDefinition | Where-Object Name -eq "StorageMetrics.$type")
+            $mixedView = @($format.FormatViewDefinition | Where-Object Name -eq 'StorageMetrics.Mixed')
+            $typeView.Count | Should -Be 1
+            $mixedView.Count | Should -Be 1
+            $typeView[0].Control.GetType().Name | Should -Be 'TableControl'
+            ($typeView[0].Control.Headers.Count -le 5) | Should -Be $true
+            $mixedView[0].Control.GetType().Name | Should -Be 'TableControl'
+            $mixedView[0].Control.Headers.Count | Should -Be 6
+        }
+    }
+
+    It 'renders mixed record types in a compact table' {
+        $types = @(
+            'AccountTotal', 'Summary', 'Detail', 'Error',
+            'Capacity', 'CapacityAccountTotal', 'IndexCapacity', 'CapacityError',
+            'CurrentCapacity', 'CurrentCapacityAccountTotal', 'CurrentIndexCapacity', 'CurrentCapacityError',
+            'CostMeter', 'CostDetail', 'CostComparison', 'CostError',
+            'Workload', 'BilledWorkload', 'CapacityComparison', 'Estimate', 'Scenario'
+        )
+        $records = foreach ($type in $types) {
+            $record = [pscustomobject]@{
+                RecordType = $type
+                StorageAccountName = 'storage'
+                Month = '2026-01'
+                SummaryPeriod = 'Month'
+                Category = 'Reads'
+                RequestCount = 10
+                CompletenessStatus = 'Reconciled'
+                ApiName = 'GetBlob'
+                Tier = 'Hot'
+                MappingStatus = 'Mapped'
+                CountStatus = 'Observed'
+                Message = 'example'
+                BlobType = 'BlockBlob'
+                AverageUsedBytes = 100
+                CapacityStatus = 'CompleteSamples'
+                CurrentUsedGiB = 1
+                CapacitySampleTimeUtc = '2026-01-01T00:00:00Z'
+                QuantityBasis = 'Sampled'
+                MeterName = 'Meter'
+                ActualCost = 1
+                Currency = 'USD'
+                BillingUsageDate = '2026-01-01'
+                BilledOperationCount = 10
+                ComparisonStatus = 'Compared'
+                QuantityKind = 'Requests'
+                QuantityUnit = 'Count'
+                Quantity = 10
+                QuantityStatus = 'Observed'
+                ObservedCapacityGiBMonth = 1
+                BilledCapacityGiBMonth = 1
+                Redundancy = if ($type -eq 'Scenario') { 'ScenarioRedundancy' } else { 'EstimateRedundancy' }
+                Component = if ($type -eq 'Estimate') { 'EstimateComponent' } else { $null }
+                EstimatedCost = if ($type -eq 'Estimate') { 123.45 } else { $null }
+                Status = 'Priced'
+                PricedSubtotal = if ($type -eq 'Scenario') { 456.78 } else { $null }
+                DeltaFromCurrent = if ($type -eq 'Scenario') { 12.34 } else { $null }
+            }
+            $record.PSObject.TypeNames.Insert(0, "StorageMetrics.$type")
+            $record
+        }
+        $rendered = $records | Out-String -Width 300
+
+        $rendered | Should -Match 'RecordType\s+StorageAccountName\s+Context\s+Detail\s+Value\s+Status'
+        $rendered | Should -Not -Match 'RecordType\s*:'
+        $rendered | Should -Match 'EstimateComponent'
+        $rendered | Should -Match '123\.45'
+        $rendered | Should -Match 'ScenarioRedundancy'
+        $rendered | Should -Match '456\.78'
+        $rendered | Should -Match '12\.34'
+        foreach ($type in $types) {
+            $rendered | Should -Match ([regex]::Escape($type))
         }
     }
 }
