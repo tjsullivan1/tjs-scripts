@@ -1,18 +1,20 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Offline Az boundary stubs retain the parameters consumed by Pester mocks.')]
 param()
 
-Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
-
-InModuleScope StorageMetrics {
-function Get-AzContext { param([switch]$ListAvailable) }
-function Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
+BeforeAll {
+    Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+    InModuleScope StorageMetrics {
+        function script:Get-AzContext { param([switch]$ListAvailable) }
+        function script:Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
+    }
+}
 
 Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
     BeforeEach {
-        . "$PSScriptRoot\..\Get-AzStorageTransactionMetric.ps1"
+        Mock Get-UtcNow -ModuleName StorageMetrics { [datetimeoffset]'2026-10-16T12:00:00Z' }
         $script:sub = '11111111-1111-1111-1111-111111111111'
         $script:id = "/subscriptions/$script:sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/testaccount"
-        $script:end = [datetimeoffset]::new([datetime]::UtcNow.Year, [datetime]::UtcNow.Month, 1, 0, 0, 0, [timespan]::Zero)
+        $script:end = [datetimeoffset]::new(2026, 10, 1, 0, 0, 0, [timespan]::Zero)
         $script:start = $script:end.AddMonths(-1)
         $script:csv = "$TestDrive\cost.csv"
         $script:costRows = @(
@@ -103,19 +105,19 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $workload = $rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }
-        $workload.Quantity | Should Be 2
-        $workload.QuantityUnit | Should Be 'GiBMonth'
-        $workload.Tier | Should Be 'Hot'
-        $workload.BlobType | Should Be 'BlockBlob'
-        $workload.QuantitySource | Should Be 'AzureMonitor'
+        $workload.Quantity | Should -Be 2
+        $workload.QuantityUnit | Should -Be 'GiBMonth'
+        $workload.Tier | Should -Be 'Hot'
+        $workload.BlobType | Should -Be 'BlockBlob'
+        $workload.QuantitySource | Should -Be 'AzureMonitor'
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.ObservedCapacityGiBMonth | Should Be 2
-        $comparison.BilledCapacityGiBMonth | Should Be 2
-        $comparison.CapacityDifferenceGiBMonth | Should Be 0
-        $comparison.ComparisonStatus | Should Be 'QuantitiesMatch'
-        $comparison.BillingCoverageStatus | Should Be 'CsvCoverageUnverified'
-        @($rows | Where-Object RecordType -eq 'Detail').Count | Should Be 1
-        @($rows | Where-Object RecordType -eq 'CapacityAccountTotal').Count | Should Be 1
+        $comparison.ObservedCapacityGiBMonth | Should -Be 2
+        $comparison.BilledCapacityGiBMonth | Should -Be 2
+        $comparison.CapacityDifferenceGiBMonth | Should -Be 0
+        $comparison.ComparisonStatus | Should -Be 'QuantitiesMatch'
+        $comparison.BillingCoverageStatus | Should -Be 'CsvCoverageUnverified'
+        @($rows | Where-Object RecordType -eq 'Detail').Count | Should -Be 1
+        @($rows | Where-Object RecordType -eq 'CapacityAccountTotal').Count | Should -Be 1
     }
 
     It 'types optional records without changing their flat CSV or JSON schema in strict mode' {
@@ -128,20 +130,20 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
             foreach ($type in @('AccountTotal', 'Summary', 'Detail', 'Capacity', 'CapacityAccountTotal',
                     'IndexCapacity', 'CurrentCapacity', 'CurrentCapacityAccountTotal', 'CurrentIndexCapacity',
                     'CostMeter', 'CostDetail', 'CostComparison', 'Workload', 'BilledWorkload', 'CapacityComparison')) {
-                @($rows | Where-Object RecordType -eq $type).Count | Should BeGreaterThan 0
+                @($rows | Where-Object RecordType -eq $type).Count | Should -BeGreaterThan 0
             }
             $schema = $rows[0].PSObject.Properties.Name -join ','
             foreach ($row in $rows) {
-                $row.PSObject.TypeNames[0] | Should Be "StorageMetrics.$($row.RecordType)"
-                ($row.PSObject.Properties.Name -join ',') | Should Be $schema
-                @($row.PSObject.TypeNames | Where-Object { $_ -like 'StorageMetrics.*' }).Count | Should Be 1
+                $row.PSObject.TypeNames[0] | Should -Be "StorageMetrics.$($row.RecordType)"
+                ($row.PSObject.Properties.Name -join ',') | Should -Be $schema
+                @($row.PSObject.TypeNames | Where-Object { $_ -like 'StorageMetrics.*' }).Count | Should -Be 1
             }
             $rows | Export-Csv "$TestDrive\typed.csv" -NoTypeInformation
             $csv = @(Import-Csv "$TestDrive\typed.csv")
             $json = @(ConvertTo-Json -InputObject $rows -Depth 5 | ConvertFrom-Json)
-            ($csv[0].PSObject.Properties.Name -join ',') | Should Be $schema
-            ($json[0].PSObject.Properties.Name -join ',') | Should Be $schema
-            @($json | Where-Object { $_.RecordType -eq 'Capacity' -and $null -eq $_.RequestCount }).Count | Should Be 1
+            ($csv[0].PSObject.Properties.Name -join ',') | Should -Be $schema
+            ($json[0].PSObject.Properties.Name -join ',') | Should -Be $schema
+            @($json | Where-Object { $_.RecordType -eq 'Capacity' -and $null -eq $_.RequestCount }).Count | Should -Be 1
         } finally { Set-StrictMode -Off }
     }
 
@@ -155,13 +157,13 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'UsedCapacity' }
-        $comparison.ComparisonStatus | Should Be 'QuantitiesMatch'
-        $comparison.ObservedCapacityGiBMonth | Should Be 2
-        $comparison.BilledCapacityGiBMonth | Should Be 2
-        $comparison.CapacityDifferenceGiBMonth | Should Be 0
-        $comparison.Tier | Should Be 'Cool'
-        $comparison.CompletenessStatus | Should Be 'NotBillingValidation'
-        @($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'HnsIndexCapacity' }).Count | Should Be 1
+        $comparison.ComparisonStatus | Should -Be 'QuantitiesMatch'
+        $comparison.ObservedCapacityGiBMonth | Should -Be 2
+        $comparison.BilledCapacityGiBMonth | Should -Be 2
+        $comparison.CapacityDifferenceGiBMonth | Should -Be 0
+        $comparison.Tier | Should -Be 'Cool'
+        $comparison.CompletenessStatus | Should -Be 'NotBillingValidation'
+        @($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'HnsIndexCapacity' }).Count | Should -Be 1
     }
 
     It 'does not compare the ADLS dimension without known Standard StorageV2 HNS configuration' {
@@ -173,9 +175,9 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
             $script:hns = $case[0]; $script:accountKind = $case[1]; $script:skuName = $case[2]
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
             $comparison = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'UsedCapacity' }
-            $comparison.ComparisonStatus | Should Be 'UnsupportedBlobType'
-            ($null -eq $comparison.ObservedCapacityGiBMonth) | Should Be $true
-            ($null -eq $comparison.CapacityDifferenceGiBMonth) | Should Be $true
+            $comparison.ComparisonStatus | Should -Be 'UnsupportedBlobType'
+            ($null -eq $comparison.ObservedCapacityGiBMonth) | Should -Be $true
+            ($null -eq $comparison.CapacityDifferenceGiBMonth) | Should -Be $true
         }
     }
 
@@ -189,11 +191,11 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         @($script:costRows[0], $index) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $indexComparison = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'HnsIndexCapacity' }
-        $indexComparison.ObservedCapacityGiBMonth | Should Be 1
-        $indexComparison.BilledCapacityGiBMonth | Should Be 1
-        $indexComparison.ComparisonStatus | Should Be 'QuantitiesMatch'
-        ($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'UsedCapacity' }).ObservedCapacityGiBMonth | Should Be 2
-        @($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'HnsIndexCapacity' }).Count | Should Be 1
+        $indexComparison.ObservedCapacityGiBMonth | Should -Be 1
+        $indexComparison.BilledCapacityGiBMonth | Should -Be 1
+        $indexComparison.ComparisonStatus | Should -Be 'QuantitiesMatch'
+        ($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.QuantityKind -eq 'UsedCapacity' }).ObservedCapacityGiBMonth | Should -Be 2
+        @($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'HnsIndexCapacity' }).Count | Should -Be 1
     }
 
     It 'keeps request dimensions and billability distinct from normalized billed operations' {
@@ -211,18 +213,18 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         @($script:costRows[0], $read) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $requests = @($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'ObservedRequests' })
-        $requests.Count | Should Be 4
+        $requests.Count | Should -Be 4
         $cool = $requests | Where-Object Tier -eq 'Cool'
-        $cool.ResponseType | Should Be 'AuthorizationError'
-        $cool.QuantityUnit | Should Be 'Requests'
-        $cool.QuantityStatus | Should Be 'ObservedRequestsNotBillable'
-        ($requests | Where-Object ApiName -eq 'DeleteBlob').QuantityStatus | Should Be 'DocumentedFreeRequests'
-        ($requests | Where-Object ApiName -eq 'NewApi').QuantityStatus | Should Be 'UnmappedRequests'
+        $cool.ResponseType | Should -Be 'AuthorizationError'
+        $cool.QuantityUnit | Should -Be 'Requests'
+        $cool.QuantityStatus | Should -Be 'ObservedRequestsNotBillable'
+        ($requests | Where-Object ApiName -eq 'DeleteBlob').QuantityStatus | Should -Be 'DocumentedFreeRequests'
+        ($requests | Where-Object ApiName -eq 'NewApi').QuantityStatus | Should -Be 'UnmappedRequests'
         $billing = $rows | Where-Object { $_.RecordType -eq 'BilledWorkload' -and $_.MeterId -eq 'read-meter' }
-        $billing.Quantity | Should Be 3
-        $billing.QuantityUnit | Should Be 'Operations'
-        $billing.QuantityStatus | Should Be 'BillingDerived'
-        $billing.QuantityBasis | Should Be 'BillingReportedUsage'
+        $billing.Quantity | Should -Be 3
+        $billing.QuantityUnit | Should -Be 'Operations'
+        $billing.QuantityStatus | Should -Be 'BillingDerived'
+        $billing.QuantityBasis | Should -Be 'BillingReportedUsage'
     }
 
     It 'reports capacity differences without treating sampled usage as exact billing' {
@@ -230,10 +232,10 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.CapacityDifferenceGiBMonth | Should Be 1
-        $comparison.CapacityDifferencePercent | Should Be 100
-        $comparison.ComparisonStatus | Should Be 'QuantitiesDiffer'
-        $comparison.CompletenessStatus | Should Be 'NotBillingValidation'
+        $comparison.CapacityDifferenceGiBMonth | Should -Be 1
+        $comparison.CapacityDifferencePercent | Should -Be 100
+        $comparison.ComparisonStatus | Should -Be 'QuantitiesDiffer'
+        $comparison.CompletenessStatus | Should -Be 'NotBillingValidation'
     }
 
     It 'does not use account default tier to classify unlabeled billing capacity' {
@@ -241,10 +243,10 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $null -eq $_.Tier }
-        $comparison.ComparisonStatus | Should Be 'TierUnresolved'
-        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should Be $true
-        $comparison.BilledCapacityGiBMonth | Should Be 2
-        ($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Hot' }).ComparisonStatus | Should Be 'NoMatchingBillingMeter'
+        $comparison.ComparisonStatus | Should -Be 'TierUnresolved'
+        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should -Be $true
+        $comparison.BilledCapacityGiBMonth | Should -Be 2
+        ($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Hot' }).ComparisonStatus | Should -Be 'NoMatchingBillingMeter'
     }
 
     It 'compares explicitly untiered GPv1 capacity against its legacy billing catalog without assigning Hot' {
@@ -255,13 +257,13 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = @($rows | Where-Object RecordType -eq 'CapacityComparison')
-        $comparison.Count | Should Be 1
-        $comparison[0].Tier | Should Be 'Untiered'
-        $comparison[0].CapacityTierBasis | Should Be 'NonTieredGPv1'
-        $comparison[0].ObservedCapacityGiBMonth | Should Be 2
-        $comparison[0].BilledCapacityGiBMonth | Should Be 2
-        $comparison[0].ComparisonStatus | Should Be 'QuantitiesMatch'
-        ($rows | Where-Object RecordType -eq 'BilledWorkload').BillingTier | Should BeNullOrEmpty
+        $comparison.Count | Should -Be 1
+        $comparison[0].Tier | Should -Be 'Untiered'
+        $comparison[0].CapacityTierBasis | Should -Be 'NonTieredGPv1'
+        $comparison[0].ObservedCapacityGiBMonth | Should -Be 2
+        $comparison[0].BilledCapacityGiBMonth | Should -Be 2
+        $comparison[0].ComparisonStatus | Should -Be 'QuantitiesMatch'
+        ($rows | Where-Object RecordType -eq 'BilledWorkload').BillingTier | Should -BeNullOrEmpty
     }
 
     It 'does not apply legacy non-tiered semantics to a modern account or modern billing catalog' {
@@ -270,14 +272,14 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows[0].MeterSubCategory = 'General Block Blob'
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
-        @($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.ComparisonStatus -ne 'TierUnresolved' }).Count | Should Be 0
+        @($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.ComparisonStatus -ne 'TierUnresolved' }).Count | Should -Be 0
         $script:accountKind = 'Storage'
         $script:costRows[0].MeterSubCategory = 'Blob Storage'
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $untiered = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Untiered' }
-        $untiered.ComparisonStatus | Should Be 'NoMatchingBillingMeter'
-        ($null -eq $untiered.BilledCapacityGiBMonth) | Should Be $true
+        $untiered.ComparisonStatus | Should -Be 'NoMatchingBillingMeter'
+        ($null -eq $untiered.BilledCapacityGiBMonth) | Should -Be $true
     }
 
     It 'keeps incomplete legacy capacity unknown even when its non-tiered billing catalog matches' {
@@ -289,10 +291,10 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -WarningAction SilentlyContinue -ErrorAction Stop)
         $comparison = @($rows | Where-Object RecordType -eq 'CapacityComparison')
-        $comparison.Count | Should Be 1
-        $comparison[0].ComparisonStatus | Should Be 'MetricsIncomplete'
-        ($null -eq $comparison[0].ObservedCapacityGiBMonth) | Should Be $true
-        $comparison[0].BilledCapacityGiBMonth | Should Be 2
+        $comparison.Count | Should -Be 1
+        $comparison[0].ComparisonStatus | Should -Be 'MetricsIncomplete'
+        ($null -eq $comparison[0].ObservedCapacityGiBMonth) | Should -Be $true
+        $comparison[0].BilledCapacityGiBMonth | Should -Be 2
     }
 
     It 'blocks comparisons with multiple redundancy or currency contexts' {
@@ -302,14 +304,14 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         @($script:costRows[0], $other) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.ComparisonStatus | Should Be 'AmbiguousBillingContext'
-        ($null -eq $comparison.BilledCapacityGiBMonth) | Should Be $true
-        ($null -eq $comparison.CapacityDifferenceGiBMonth) | Should Be $true
+        $comparison.ComparisonStatus | Should -Be 'AmbiguousBillingContext'
+        ($null -eq $comparison.BilledCapacityGiBMonth) | Should -Be $true
+        ($null -eq $comparison.CapacityDifferenceGiBMonth) | Should -Be $true
         $other.MeterName = 'Hot LRS Data Stored'
         $other.BillingCurrency = 'EUR'
         @($script:costRows[0], $other) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
-        ($rows | Where-Object RecordType -eq 'CapacityComparison').ComparisonStatus | Should Be 'AmbiguousBillingContext'
+        ($rows | Where-Object RecordType -eq 'CapacityComparison').ComparisonStatus | Should -Be 'AmbiguousBillingContext'
     }
 
     It 'preserves missing samples rather than pricing the available-hour average' {
@@ -317,28 +319,28 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -WarningAction SilentlyContinue -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should Be $true
-        $comparison.BilledCapacityGiBMonth | Should Be 2
-        $comparison.ComparisonStatus | Should Be 'MetricsIncomplete'
-        ($null -eq ($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).Quantity) | Should Be $true
+        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should -Be $true
+        $comparison.BilledCapacityGiBMonth | Should -Be 2
+        $comparison.ComparisonStatus | Should -Be 'MetricsIncomplete'
+        ($null -eq ($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).Quantity) | Should -Be $true
     }
 
     It 'shows capacity query failures without claiming billing quantity agreement' {
         $script:capacityFailure = $true
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction SilentlyContinue)
-        ($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Hot' }).ComparisonStatus | Should Be 'MetricsFailed'
-        @($rows | Where-Object RecordType -eq 'CapacityError').Count | Should Be 1
-        ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should Be 'Reconciled'
+        ($rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Hot' }).ComparisonStatus | Should -Be 'MetricsFailed'
+        @($rows | Where-Object RecordType -eq 'CapacityError').Count | Should -Be 1
+        ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should -Be 'Reconciled'
     }
 
     It 'distinguishes a failed billing import from an absent billing meter' {
         $script:costRows[0].Quantity = 'invalid'
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction SilentlyContinue)
-        ($rows | Where-Object RecordType -eq 'CapacityComparison').ComparisonStatus | Should Be 'BillingUnavailable'
-        ($rows | Where-Object RecordType -eq 'CapacityComparison').ObservedCapacityGiBMonth | Should Be 2
-        @($rows | Where-Object RecordType -eq 'CostError').Count | Should Be 1
+        ($rows | Where-Object RecordType -eq 'CapacityComparison').ComparisonStatus | Should -Be 'BillingUnavailable'
+        ($rows | Where-Object RecordType -eq 'CapacityComparison').ObservedCapacityGiBMonth | Should -Be 2
+        @($rows | Where-Object RecordType -eq 'CostError').Count | Should -Be 1
     }
 
     It 'does not compare page-blob capacity with a general block-blob meter' {
@@ -346,9 +348,9 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.ComparisonStatus | Should Be 'UnsupportedBlobType'
-        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should Be $true
-        ($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).BlobType | Should Be 'PageBlob'
+        $comparison.ComparisonStatus | Should -Be 'UnsupportedBlobType'
+        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should -Be $true
+        ($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).BlobType | Should -Be 'PageBlob'
     }
 
     It 'retains zero quantities without dividing by zero or synthesizing absent meters' {
@@ -357,17 +359,17 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.ObservedCapacityGiBMonth | Should Be 0
-        $comparison.BilledCapacityGiBMonth | Should Be 0
-        $comparison.ComparisonStatus | Should Be 'QuantitiesMatch'
-        ($null -eq $comparison.CapacityDifferencePercent) | Should Be $true
+        $comparison.ObservedCapacityGiBMonth | Should -Be 0
+        $comparison.BilledCapacityGiBMonth | Should -Be 0
+        $comparison.ComparisonStatus | Should -Be 'QuantitiesMatch'
+        ($null -eq $comparison.CapacityDifferencePercent) | Should -Be $true
         $script:costRows[0].MeterName = 'Hot Read Operations'
         $script:costRows[0].UnitOfMeasure = '10K'
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.ComparisonStatus | Should Be 'NoMatchingBillingMeter'
-        ($null -eq $comparison.BilledCapacityGiBMonth) | Should Be $true
+        $comparison.ComparisonStatus | Should -Be 'NoMatchingBillingMeter'
+        ($null -eq $comparison.BilledCapacityGiBMonth) | Should -Be $true
     }
 
     It 'retains unknown and unverified billing meters without assigning usable quantities' {
@@ -378,13 +380,13 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         @($script:costRows[0], $unknown) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $unverified = $rows | Where-Object { $_.RecordType -eq 'BilledWorkload' -and $_.MeterId -eq 'capacity-meter' }
-        $unverified.QuantityStatus | Should Be 'UnverifiedUnit'
-        ($null -eq $unverified.Quantity) | Should Be $true
+        $unverified.QuantityStatus | Should -Be 'UnverifiedUnit'
+        ($null -eq $unverified.Quantity) | Should -Be $true
         $unclassified = $rows | Where-Object { $_.RecordType -eq 'BilledWorkload' -and $_.MeterId -eq 'unknown-meter' }
-        $unclassified.QuantityKind | Should Be 'UnclassifiedMeter'
-        $unclassified.QuantityStatus | Should Be 'Unclassified'
-        $unclassified.BilledQuantity | Should Be 2
-        ($rows | Where-Object RecordType -eq 'CapacityComparison').ComparisonStatus | Should Be 'UnverifiedUnit'
+        $unclassified.QuantityKind | Should -Be 'UnclassifiedMeter'
+        $unclassified.QuantityStatus | Should -Be 'Unclassified'
+        $unclassified.BilledQuantity | Should -Be 2
+        ($rows | Where-Object RecordType -eq 'CapacityComparison').ComparisonStatus | Should -Be 'UnverifiedUnit'
     }
 
     It 'excludes refunds and flags negative usage rather than turning adjustments into workload' {
@@ -394,30 +396,30 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         @($script:costRows[0], $refund) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.BilledCapacityGiBMonth | Should Be 2
-        $comparison.ComparisonStatus | Should Be 'QuantitiesMatch'
+        $comparison.BilledCapacityGiBMonth | Should -Be 2
+        $comparison.ComparisonStatus | Should -Be 'QuantitiesMatch'
         $nonUsage = $rows | Where-Object { $_.RecordType -eq 'BilledWorkload' -and $_.ChargeType -eq 'Refund' }
-        $nonUsage.QuantityStatus | Should Be 'NonUsageCharge'
-        ($null -eq $nonUsage.Quantity) | Should Be $true
+        $nonUsage.QuantityStatus | Should -Be 'NonUsageCharge'
+        ($null -eq $nonUsage.Quantity) | Should -Be $true
         $refund.ChargeType = 'Usage'
         @($script:costRows[0], $refund) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -IncludeCostDetail -ErrorAction Stop)
         $comparison = $rows | Where-Object RecordType -eq 'CapacityComparison'
-        $comparison.ComparisonStatus | Should Be 'BillingAdjustmentsPresent'
-        ($null -eq $comparison.BilledCapacityGiBMonth) | Should Be $true
+        $comparison.ComparisonStatus | Should -Be 'BillingAdjustmentsPresent'
+        ($null -eq $comparison.BilledCapacityGiBMonth) | Should -Be $true
         $billing = $rows | Where-Object RecordType -eq 'BilledWorkload'
-        $billing.QuantityStatus | Should Be 'BillingAdjustmentsPresent'
-        ($null -eq $billing.Quantity) | Should Be $true
-        $billing.NormalizedBilledQuantity | Should Be 1
+        $billing.QuantityStatus | Should -Be 'BillingAdjustmentsPresent'
+        ($null -eq $billing.Quantity) | Should -Be $true
+        $billing.NormalizedBilledQuantity | Should -Be 1
     }
 
     It 'does not mistake daily evidence and overlapping totals for additional measured quantities' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -IncludeCostDetail -ErrorAction Stop)
-        @($rows | Where-Object RecordType -eq 'CostDetail').Count | Should Be 1
-        @($rows | Where-Object RecordType -eq 'BilledWorkload').Count | Should Be 1
-        @($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).Count | Should Be 1
-        @($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.SourceRecordType -in @('AccountTotal', 'Summary', 'CapacityAccountTotal', 'CostDetail') }).Count | Should Be 0
+        @($rows | Where-Object RecordType -eq 'CostDetail').Count | Should -Be 1
+        @($rows | Where-Object RecordType -eq 'BilledWorkload').Count | Should -Be 1
+        @($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).Count | Should -Be 1
+        @($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.SourceRecordType -in @('AccountTotal', 'Summary', 'CapacityAccountTotal', 'CostDetail') }).Count | Should -Be 0
     }
 
     It 'keeps baseline requests null when the month has incomplete metric counts' {
@@ -425,8 +427,8 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -WarningAction SilentlyContinue -ErrorAction Stop)
         $requests = $rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'ObservedRequests' }
-        ($null -eq $requests.Quantity) | Should Be $true
-        $requests.QuantityStatus | Should Be 'MissingData'
+        ($null -eq $requests.Quantity) | Should -Be $true
+        $requests.QuantityStatus | Should -Be 'MissingData'
     }
 
     It 'keeps accounts separate and retains flat baseline fields in CSV and JSON under strict mode' {
@@ -438,23 +440,23 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         try {
             $rows = @(@($script:id, $other.ResourceId) | Get-AzStorageTransactionMetric -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
             $comparisons = @($rows | Where-Object RecordType -eq 'CapacityComparison')
-            $comparisons.Count | Should Be 2
-            ($comparisons | Where-Object ResourceId -eq $script:id).ComparisonStatus | Should Be 'QuantitiesMatch'
-            ($comparisons | Where-Object ResourceId -eq $other.ResourceId).ComparisonStatus | Should Be 'QuantitiesDiffer'
+            $comparisons.Count | Should -Be 2
+            ($comparisons | Where-Object ResourceId -eq $script:id).ComparisonStatus | Should -Be 'QuantitiesMatch'
+            ($comparisons | Where-Object ResourceId -eq $other.ResourceId).ComparisonStatus | Should -Be 'QuantitiesDiffer'
             $rows | Export-Csv "$TestDrive\baseline.csv" -NoTypeInformation
             $csv = @(Import-Csv "$TestDrive\baseline.csv" | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' })
-            $csv[0].Quantity | Should Be '2'
-            $csv[0].QuantityUnit | Should Be 'GiBMonth'
+            $csv[0].Quantity | Should -Be '2'
+            $csv[0].QuantityUnit | Should -Be 'GiBMonth'
             $json = ConvertTo-Json -InputObject $rows -Depth 4 | ConvertFrom-Json
-            ($null -eq ($json | Where-Object RecordType -eq 'AccountTotal')[0].Quantity) | Should Be $true
+            ($null -eq ($json | Where-Object RecordType -eq 'AccountTotal')[0].Quantity) | Should -Be $true
         } finally { Set-StrictMode -Off }
     }
 
     It 'requires an explicit billing source and a full monthly period before requests' {
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeWorkloadBaseline } | Should Throw 'requires IncludeCostComparison or CostDetailsCsv'
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddDays(1) -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline } | Should Throw 'completed UTC'
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -SummaryPeriod Chunk -CostDetailsCsv $script:csv -IncludeWorkloadBaseline } | Should Throw 'completed UTC'
-        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeWorkloadBaseline } | Should -Throw '*requires IncludeCostComparison or CostDetailsCsv*'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddDays(1) -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline } | Should -Throw '*completed UTC*'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -SummaryPeriod Chunk -CostDetailsCsv $script:csv -IncludeWorkloadBaseline } | Should -Throw '*completed UTC*'
+        Should -Invoke Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0
     }
 
     It 'does not reinterpret Untiered capacity as the default Hot tier' {
@@ -463,9 +465,9 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparison = $rows | Where-Object { $_.RecordType -eq 'CapacityComparison' -and $_.Tier -eq 'Untiered' }
-        $comparison.ComparisonStatus | Should Be 'TierUnresolved'
-        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should Be $true
-        ($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).Quantity | Should Be 2
+        $comparison.ComparisonStatus | Should -Be 'TierUnresolved'
+        ($null -eq $comparison.ObservedCapacityGiBMonth) | Should -Be $true
+        ($rows | Where-Object { $_.RecordType -eq 'Workload' -and $_.QuantityKind -eq 'UsedCapacity' }).Quantity | Should -Be 2
     }
 
     It 'keeps each month distinct and never combines capacities across billing months' {
@@ -476,20 +478,19 @@ Describe 'Monthly workload baseline through Get-AzStorageTransactionMetric' {
         @($earlier, $script:costRows[0]) | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -IncludeWorkloadBaseline -ErrorAction Stop)
         $comparisons = @($rows | Where-Object RecordType -eq 'CapacityComparison')
-        $comparisons.Count | Should Be 2
-        $comparisons[0].ObservedCapacityGiBMonth | Should Be 2
-        $comparisons[0].BilledCapacityGiBMonth | Should Be 1
-        $comparisons[0].ComparisonStatus | Should Be 'QuantitiesDiffer'
-        $comparisons[1].BilledCapacityGiBMonth | Should Be 2
-        $comparisons[1].ComparisonStatus | Should Be 'QuantitiesMatch'
-        $comparisons[0].Month | Should Not Be $comparisons[1].Month
+        $comparisons.Count | Should -Be 2
+        $comparisons[0].ObservedCapacityGiBMonth | Should -Be 2
+        $comparisons[0].BilledCapacityGiBMonth | Should -Be 1
+        $comparisons[0].ComparisonStatus | Should -Be 'QuantitiesDiffer'
+        $comparisons[1].BilledCapacityGiBMonth | Should -Be 2
+        $comparisons[1].ComparisonStatus | Should -Be 'QuantitiesMatch'
+        $comparisons[0].Month | Should -Not -Be $comparisons[1].Month
     }
 
     It 'does not emit baseline rows when the opt-in switch is absent' {
         $script:costRows | Export-Csv $script:csv -NoTypeInformation
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -CostDetailsCsv $script:csv -ErrorAction Stop)
-        @($rows | Where-Object RecordType -in @('Workload', 'BilledWorkload', 'CapacityComparison')).Count | Should Be 0
-        Assert-MockCalled Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity' }
+        @($rows | Where-Object RecordType -in @('Workload', 'BilledWorkload', 'CapacityComparison')).Count | Should -Be 0
+        Should -Invoke Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity' }
     }
-}
 }

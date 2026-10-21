@@ -1163,15 +1163,22 @@ up or roll back.
 
 ## Offline verification
 
-The PowerShell test suite uses the Pester 3.4.0 runner, mocks external Az,
+The PowerShell test suite uses Pester 5.7.1 on PowerShell 7, mocks external Az,
 retail/report-download and delay boundaries, and calls the public commands
-without credentials or network access. Module-scoped Pester fixtures keep these
-boundary mocks in the commands' session state; helpers are not mocked:
+without credentials, Az modules or network access. `BeforeAll` imports the
+module and defines offline Az stubs during the run phase, not discovery.
+Mocks use `-ModuleName StorageMetrics`; assertions use Pester 5's `Should -Be`
+and `Should -Invoke` syntax. The private `Get-UtcNow` clock boundary is mocked
+to `2026-10-16T12:00:00Z` so retention checks, capacity ages, polling deadlines,
+retry dates and evidence timestamps are deterministic. Other helpers are not mocked.
+Install the runner once if needed (this setup step requires gallery access);
+running the tests is offline:
 
 ```powershell
-Import-Module Pester -RequiredVersion 3.4.0
-$test = Invoke-Pester -Script .\PowerShell\StorageMetrics\tests\Get-AzStorageTransactionMetric.Tests.ps1 -PassThru
-if ($test.FailedCount) { throw "$($test.FailedCount) tests failed." }
+Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -SkipPublisherCheck -Force -ErrorAction Stop
+Import-Module Pester -RequiredVersion 5.7.1 -ErrorAction Stop
+$test = Invoke-Pester -Path .\PowerShell\StorageMetrics\tests\Get-AzStorageTransactionMetric.Tests.ps1 -PassThru
+if ($test.FailedCount -or $test.FailedContainersCount -or $test.TotalCount -eq 0) { throw 'Pester verification failed.' }
 ```
 
 Tests cover documented mappings, account-column differences, dimensions,
@@ -1188,9 +1195,11 @@ refunds, missing counts/meters, scope/date filtering, output exports,
 asynchronous multi-part downloads and bounded polling/failure handling:
 
 ```powershell
-$test = Invoke-Pester -Script .\PowerShell\StorageMetrics\tests -PassThru
-if ($test.FailedCount) { throw "$($test.FailedCount) tests failed." }
+Invoke-Pester -Path .\PowerShell\StorageMetrics\tests -Output Detailed -CI
 ```
+
+CI pins the same Pester version and uses `-CI` to fail on test or discovery
+errors and write NUnit test results.
 
 Capacity tests exercise the same public function with mocked hourly responses:
 unequal chunk lengths, tier splits, HNS index, missing/zero/empty samples,

@@ -16,7 +16,7 @@ function Get-LiveCostRows {
     $response = Invoke-AzRestMethod -Path (
         "/subscriptions/$subscription/providers/Microsoft.CostManagement/generateCostDetailsReport?api-version=2022-05-01"
     ) -Method POST -Payload $payload -DefaultProfile $Context -ErrorAction Stop
-    $deadline = [datetimeoffset]::UtcNow.AddMinutes($TimeoutMinutes)
+    $deadline = (Get-UtcNow).AddMinutes($TimeoutMinutes)
     $pollCount = 0
     while ([int]$response.StatusCode -eq 202) {
         $pollCount++
@@ -33,7 +33,7 @@ function Get-LiveCostRows {
         if (-not [int]::TryParse($retryText, [ref]$seconds) -or $seconds -lt 0) {
             throw 'Cost Details returned an invalid Retry-After header.'
         }
-        if ($pollCount -gt 30 -or [datetimeoffset]::UtcNow.AddSeconds($seconds) -gt $deadline) {
+        if ($pollCount -gt 30 -or (Get-UtcNow).AddSeconds($seconds) -gt $deadline) {
             throw 'Cost Details report did not complete within the polling limit; retry later.'
         }
         Start-Sleep -Seconds $seconds

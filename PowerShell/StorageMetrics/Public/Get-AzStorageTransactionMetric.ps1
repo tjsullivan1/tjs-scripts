@@ -108,7 +108,7 @@ function Get-AzStorageTransactionMetric {
         $start = $StartTime.ToUniversalTime()
         $end = $EndTime.ToUniversalTime()
         if ($MaxRetry -lt 0) { throw 'MaxRetry must be nonnegative.' }
-        $now = [datetimeoffset]::UtcNow
+        $now = Get-UtcNow
         if ($start -ge $end -or $end -gt $now) {
             throw 'StartTime must precede EndTime; EndTime cannot be in the future.'
         }
@@ -123,7 +123,7 @@ function Get-AzStorageTransactionMetric {
         if ($collectCapacity -and ($start.Ticks % [timespan]::TicksPerHour -or $end.Ticks % [timespan]::TicksPerHour)) {
             throw 'IncludeCapacity requires StartTime and EndTime aligned to whole hours.'
         }
-        if ($start -lt [datetimeoffset]::UtcNow.AddDays(-93)) {
+        if ($start -lt (Get-UtcNow).AddDays(-93)) {
             throw 'StartTime is outside the 93-day Azure Monitor platform metric retention window.'
         }
         $compareCosts = $IncludeCostComparison -or [bool]$CostDetailsCsv
@@ -198,7 +198,7 @@ function Get-AzStorageTransactionMetric {
                 }
                 $recordParameters.SubscriptionName = $subscriptionName
                 $account = Invoke-StorageMetricRequest -Path "${id}?api-version=2023-05-01" -Context $context -MaxRetry $MaxRetry
-                $configurationObservedAt = [datetimeoffset]::UtcNow.ToString('o')
+                $configurationObservedAt = (Get-UtcNow).ToString('o')
                 $recordParameters.Account = $account
                 $recordParameters.ConfigurationObservedAt = $configurationObservedAt
                 if (-not $account['kind'] -or $account['sku'] -isnot [hashtable] -or
@@ -303,7 +303,7 @@ function Get-AzStorageTransactionMetric {
             }
             if ($IncludeCurrentCapacity -and $collected) {
                 $template = $records[0]
-                $snapshotEnd = [datetimeoffset]::UtcNow
+                $snapshotEnd = Get-UtcNow
                 $snapshotEnd = $snapshotEnd.AddTicks(-($snapshotEnd.Ticks % [timespan]::TicksPerHour))
                 $snapshotStart = $snapshotEnd.AddHours(-24)
                 try {
