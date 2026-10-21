@@ -1,12 +1,20 @@
-function Get-AzContext { param([switch]$ListAvailable) }
-function Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Offline Az boundary stubs retain the parameters consumed by Pester mocks.')]
+param()
+
+BeforeAll {
+    Import-Module "$PSScriptRoot\..\StorageMetrics.psd1" -Force -ErrorAction Stop
+    InModuleScope StorageMetrics {
+        function script:Get-AzContext { param([switch]$ListAvailable) }
+        function script:Invoke-AzRestMethod { param($Path, $Method, $DefaultProfile) }
+    }
+}
 
 Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
     BeforeEach {
-        . "$PSScriptRoot\..\Get-AzStorageTransactionMetric.ps1"
+        Mock Get-UtcNow -ModuleName StorageMetrics { [datetimeoffset]'2026-10-16T12:00:00Z' }
         $script:sub = '11111111-1111-1111-1111-111111111111'
         $script:id = "/subscriptions/$script:sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/testaccount"
-        $script:start = [datetimeoffset]::UtcNow.AddDays(-2)
+        $script:start = ([datetimeoffset]'2026-10-16T12:00:00Z').AddDays(-2)
         $script:start = $script:start.AddTicks(-($script:start.Ticks % [timespan]::TicksPerHour))
         $script:end = $script:start.AddHours(3)
         $script:values = @(100, 300, 500)
@@ -26,10 +34,10 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $script:currentValues = $null
         $script:capacityStatuses = @()
         $script:capacityStatusIndex = 0
-        Mock Get-AzContext {
+        Mock Get-AzContext -ModuleName StorageMetrics {
             [pscustomobject]@{ Subscription = @{ Id = $script:sub; Name = 'Example subscription' } }
         }
-        Mock Invoke-AzRestMethod {
+        Mock Invoke-AzRestMethod -ModuleName StorageMetrics {
             if ($Path -notmatch 'Microsoft.Insights') {
                 return [pscustomobject]@{ StatusCode = 200; Content = (@{
                     kind = 'StorageV2'; sku = @{ name = 'Standard_LRS' }; location = 'eastus'
@@ -107,7 +115,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
                 value = @(@{ name = @{ value = $metric }; unit = 'Bytes'; errorCode = $(if ($script:badMetric) { 'BadArgument' } else { 'Success' }); timeseries = $seriesList })
             } | ConvertTo-Json -Depth 12) }
         }
-        Mock Start-Sleep {}
+        Mock Start-Sleep -ModuleName StorageMetrics {}
     }
 
         It 'reports the latest current capacity sample rather than a historical average' {
@@ -115,15 +123,16 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $script:currentValues = @(@($null) * 21) + @(100, 300, 500)
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop)
             $capacity = $rows | Where-Object RecordType -eq 'CurrentCapacity'
-            $capacity.CurrentUsedBytes | Should Be 500
-            $capacity.CapacityStatus | Should Be 'LatestReconciledSample'
-            $capacity.QuantityBasis | Should Be 'AzureMonitorLatestUsedCapacity'
-            ($null -eq $capacity.AverageUsedBytes) | Should Be $true
-            $capacity.Month | Should BeNullOrEmpty
-            ([datetimeoffset]$capacity.CapacitySampleTimeUtc -gt $script:end) | Should Be $true
-            ($capacity.CapacitySampleAgeHours -ge 1 -and $capacity.CapacitySampleAgeHours -lt 2) | Should Be $true
-            ($rows | Where-Object RecordType -eq 'AccountTotal').StartTime | Should Be $script:start.ToString('o')
-            @($rows | Where-Object RecordType -eq 'Capacity').Count | Should Be 0
+            $capacity.CurrentUsedBytes | Should -Be 500
+            $capacity.CapacityStatus | Should -Be 'LatestReconciledSample'
+            $capacity.QuantityBasis | Should -Be 'AzureMonitorLatestUsedCapacity'
+            ($null -eq $capacity.AverageUsedBytes) | Should -Be $true
+            $capacity.Month | Should -BeNullOrEmpty
+            ([datetimeoffset]$capacity.CapacitySampleTimeUtc -gt $script:end) | Should -Be $true
+            $capacity.CapacitySampleAgeHours | Should -Be 1
+            $capacity.CapacitySampleTimeUtc | Should -Be '2026-10-16T11:00:00.0000000+00:00'
+            ($rows | Where-Object RecordType -eq 'AccountTotal').StartTime | Should -Be $script:start.ToString('o')
+            @($rows | Where-Object RecordType -eq 'Capacity').Count | Should -Be 0
         }
 
         It 'uses the latest available reconciled sample when the newest hour is missing' {
@@ -131,38 +140,39 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $script:currentValues = @(@($null) * 22) + @(0, $null)
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop)
             $capacity = $rows | Where-Object RecordType -eq 'CurrentCapacity'
-            $capacity.CurrentUsedBytes | Should Be 0
-            $capacity.CurrentUsedGiB | Should Be 0
-            ($capacity.CapacitySampleAgeHours -ge 2 -and $capacity.CapacitySampleAgeHours -lt 3) | Should Be $true
+            $capacity.CurrentUsedBytes | Should -Be 0
+            $capacity.CurrentUsedGiB | Should -Be 0
+            $capacity.CapacitySampleAgeHours | Should -Be 2
             $total = $rows | Where-Object RecordType -eq 'CurrentCapacityAccountTotal'
-            $total.CapacitySampleTimeUtc | Should Be $capacity.CapacitySampleTimeUtc
-            $total.CurrentUsedBytes | Should Be 0
+            $total.CapacitySampleTimeUtc | Should -Be $capacity.CapacitySampleTimeUtc
+            $total.CurrentUsedBytes | Should -Be 0
         }
 
         It 'keeps an empty current snapshot unknown and preserves monthly requests' {
             $script:emptyCapacity = $true
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -WarningAction SilentlyContinue -ErrorAction Stop)
             $capacity = $rows | Where-Object RecordType -eq 'CurrentCapacity'
-            $capacity.CapacityStatus | Should Be 'Unavailable'
-            ($null -eq $capacity.CurrentUsedBytes) | Should Be $true
-            $capacity.CapacitySampleTimeUtc | Should BeNullOrEmpty
-            @($rows | Where-Object RecordType -eq 'AccountTotal').Count | Should Be 1
+            $capacity.CapacityStatus | Should -Be 'Unavailable'
+            ($null -eq $capacity.CurrentUsedBytes) | Should -Be $true
+            $capacity.CapacitySampleTimeUtc | Should -BeNullOrEmpty
+            @($rows | Where-Object RecordType -eq 'AccountTotal').Count | Should -Be 1
         }
 
         It 'surfaces current capacity failures without marking observed requests failed' {
             $script:capacityFailure = $true
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction SilentlyContinue)
             $failure = $rows | Where-Object RecordType -eq 'CurrentCapacityError'
-            $failure.CapacityStatus | Should Be 'Failed'
-            $failure.Message | Should Match 'Capacity denied'
-            @($rows | Where-Object RecordType -eq 'CurrentCapacity').Count | Should Be 0
-            ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should Be 'Reconciled'
+            $failure.PSObject.TypeNames[0] | Should -Be 'StorageMetrics.CurrentCapacityError'
+            $failure.CapacityStatus | Should -Be 'Failed'
+            $failure.Message | Should -Match 'Capacity denied'
+            @($rows | Where-Object RecordType -eq 'CurrentCapacity').Count | Should -Be 0
+            ($rows | Where-Object RecordType -eq 'AccountTotal').CompletenessStatus | Should -Be 'Reconciled'
         }
 
         It 'rejects unreconciled snapshot data and supports terminating errors' {
             $script:currentValues = @(100) * 24
             $script:mismatch = $true
-            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop } | Should Throw 'does not match unsplit'
+            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop } | Should -Throw '*does not match unsplit*'
         }
 
         It 'reports HNS index separately and retains the flat export schema in strict mode' {
@@ -171,13 +181,13 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             try {
                 $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCurrentCapacity -ErrorAction Stop)
                 $index = $rows | Where-Object RecordType -eq 'CurrentIndexCapacity'
-                $index.CapacityStatus | Should Be 'LatestSample'
-                $index.MetricName | Should Be 'IndexCapacity'
-                $index.CurrentUsedBytes | Should BeGreaterThan 0
+                $index.CapacityStatus | Should -Be 'LatestSample'
+                $index.MetricName | Should -Be 'IndexCapacity'
+                $index.CurrentUsedBytes | Should -BeGreaterThan 0
                 $rows | Export-Csv "$TestDrive\current.csv" -NoTypeInformation
                 $export = Import-Csv "$TestDrive\current.csv" | Where-Object RecordType -eq 'CurrentCapacity'
-                $export.CurrentUsedBytes | Should Be '100'
-                ($rows | Where-Object RecordType -eq 'AccountTotal').CurrentUsedBytes | Should BeNullOrEmpty
+                $export.CurrentUsedBytes | Should -Be '100'
+                ($rows | Where-Object RecordType -eq 'AccountTotal').CurrentUsedBytes | Should -BeNullOrEmpty
             } finally { Set-StrictMode -Off }
         }
 
@@ -185,56 +195,56 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $script:values = @(100, $null, 500)
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -WarningAction SilentlyContinue -ErrorAction Stop)
             $capacity = $rows | Where-Object RecordType -eq 'Capacity'
-            ($null -eq $capacity.AverageUsedBytes) | Should Be $true
-            $capacity.AverageObservedBytes | Should Be 300
-            $capacity.ObservedByteHours | Should Be 600
-            $capacity.MissingHours | Should Be 1
-            $capacity.CapacityStatus | Should Be 'IncompleteSamples'
+            ($null -eq $capacity.AverageUsedBytes) | Should -Be $true
+            $capacity.AverageObservedBytes | Should -Be 300
+            $capacity.ObservedByteHours | Should -Be 600
+            $capacity.MissingHours | Should -Be 1
+            $capacity.CapacityStatus | Should -Be 'IncompleteSamples'
         }
 
         It 'keeps successful empty capacity responses unavailable rather than zero' {
             $script:emptyCapacity = $true
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -WarningAction SilentlyContinue -ErrorAction Stop)
             $capacity = $rows | Where-Object RecordType -eq 'Capacity'
-            $capacity.ObservedHours | Should Be 0
-            $capacity.MissingHours | Should Be 3
-            ($null -eq $capacity.AverageUsedBytes) | Should Be $true
-            ($null -eq $capacity.ObservedByteHours) | Should Be $true
+            $capacity.ObservedHours | Should -Be 0
+            $capacity.MissingHours | Should -Be 3
+            ($null -eq $capacity.AverageUsedBytes) | Should -Be $true
+            ($null -eq $capacity.ObservedByteHours) | Should -Be $true
         }
 
         It 'preserves explicitly measured zeros and skips index collection without HNS' {
             $script:values = @(0, 0, 0)
             $script:hns = $false
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop)
-            ($rows | Where-Object RecordType -eq 'Capacity').AverageUsedBytes | Should Be 0
-            @($rows | Where-Object RecordType -eq 'IndexCapacity').Count | Should Be 0
-            Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=IndexCapacity' }
+            ($rows | Where-Object RecordType -eq 'Capacity').AverageUsedBytes | Should -Be 0
+            @($rows | Where-Object RecordType -eq 'IndexCapacity').Count | Should -Be 0
+            Should -Invoke Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=IndexCapacity' }
         }
 
         It 'keeps tier quantities distinct and reconciles their hourly sums' {
             $script:coolValues = @(10, 20, 30)
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop)
-            ($rows | Where-Object { $_.RecordType -eq 'Capacity' -and $_.Tier -eq 'Cool' }).AverageUsedBytes | Should Be 20
-            ($rows | Where-Object { $_.RecordType -eq 'Capacity' -and $_.Tier -eq 'Hot' }).AverageUsedBytes | Should Be 300
-            ($rows | Where-Object RecordType -eq 'CapacityAccountTotal').AverageUsedBytes | Should Be 320
+            ($rows | Where-Object { $_.RecordType -eq 'Capacity' -and $_.Tier -eq 'Cool' }).AverageUsedBytes | Should -Be 20
+            ($rows | Where-Object { $_.RecordType -eq 'Capacity' -and $_.Tier -eq 'Hot' }).AverageUsedBytes | Should -Be 300
+            ($rows | Where-Object RecordType -eq 'CapacityAccountTotal').AverageUsedBytes | Should -Be 320
         }
 
         It 'fails capacity reconciliation without discarding transaction results' {
             $script:mismatch = $true
             $errors = @()
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction SilentlyContinue -ErrorVariable errors)
-            ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should Be 0
-            ($rows | Where-Object RecordType -eq 'CapacityError').Message | Should Match 'does not match unsplit'
-            @($rows | Where-Object RecordType -eq 'Capacity').Count | Should Be 0
-            @($errors | Where-Object FullyQualifiedErrorId -like 'StorageCapacityCollectionFailed*').Count | Should Be 1
+            ($rows | Where-Object RecordType -eq 'AccountTotal').RequestCount | Should -Be 0
+            ($rows | Where-Object RecordType -eq 'CapacityError').Message | Should -Match 'does not match unsplit'
+            @($rows | Where-Object RecordType -eq 'Capacity').Count | Should -Be 0
+            @($errors | Where-Object FullyQualifiedErrorId -like 'StorageCapacityCollectionFailed*').Count | Should -Be 1
         }
 
         It 'surfaces capacity HTTP and metric-level failures' {
             $script:capacityFailure = $true
-            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'Capacity denied'
+            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should -Throw '*Capacity denied*'
             $script:capacityFailure = $false
             $script:badMetric = $true
-            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'BadArgument'
+            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should -Throw '*BadArgument*'
         }
 
         It 'preserves thrown ARM errors under strict mode' {
@@ -242,7 +252,7 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             Set-StrictMode -Version Latest
             try {
                 { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } |
-                    Should Throw 'Capacity denied'
+                    Should -Throw '*Capacity denied*'
             } finally { Set-StrictMode -Off }
         }
 
@@ -250,33 +260,33 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
             $script:capacityStatuses = @(429, 200)
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
                 -IncludeCapacity -MaxRetry 1 -ErrorAction Stop)
-            ($rows | Where-Object RecordType -eq 'Capacity').CapacityStatus | Should Be 'CompleteSamples'
-            Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 3 -Exactly -ParameterFilter {
+            ($rows | Where-Object RecordType -eq 'Capacity').CapacityStatus | Should -Be 'CompleteSamples'
+            Should -Invoke Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 3 -Exactly -ParameterFilter {
                 $Path -match 'metricnames=BlobCapacity'
             }
-            Assert-MockCalled Start-Sleep -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
+            Should -Invoke Start-Sleep -ModuleName StorageMetrics -Scope It -Times 1 -Exactly -ParameterFilter { $Seconds -eq 0 }
         }
 
         It 'rejects duplicate timestamps and dimension series' {
             $script:duplicatePoints = $true
-            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'Duplicate capacity timestamp'
+            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should -Throw '*Duplicate capacity timestamp*'
             $script:duplicatePoints = $false
             $script:duplicateSeries = $true
-            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'Duplicate capacity dimension series'
+            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should -Throw '*Duplicate capacity dimension series*'
         }
 
         It 'separates months and excludes the exclusive end boundary' {
-            $boundary = [datetimeoffset]::new([datetime]::UtcNow.Year, [datetime]::UtcNow.Month, 1, 0, 0, 0, [timespan]::Zero).AddMonths(-1)
+            $boundary = [datetimeoffset]::new(2026, 10, 1, 0, 0, 0, [timespan]::Zero).AddMonths(-1)
             $script:start = $boundary.AddHours(-1)
             $script:end = $boundary.AddHours(2)
             $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop)
             $capacity = @($rows | Where-Object RecordType -eq 'Capacity')
-            $capacity.Count | Should Be 2
-            $capacity[0].AverageUsedBytes | Should Be 100
-            $capacity[1].AverageUsedBytes | Should Be 400
-            $capacity[0].EndTime | Should Be $boundary.ToString('o')
-            $capacity[1].ExpectedHours | Should Be 2
-            $capacity[1].IsPartialMonth | Should Be $true
+            $capacity.Count | Should -Be 2
+            $capacity[0].AverageUsedBytes | Should -Be 100
+            $capacity[1].AverageUsedBytes | Should -Be 400
+            $capacity[0].EndTime | Should -Be $boundary.ToString('o')
+            $capacity[1].ExpectedHours | Should -Be 2
+            $capacity[1].IsPartialMonth | Should -Be $true
         }
 
         It 'isolates multiple accounts and exports flat capacity fields under strict mode' {
@@ -286,38 +296,38 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
                 $rows = @(@($script:id, $other) | Get-AzStorageTransactionMetric -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop)
                 $rows | Export-Csv "$TestDrive\capacity.csv" -NoTypeInformation
                 $csv = @(Import-Csv "$TestDrive\capacity.csv" | Where-Object RecordType -eq 'Capacity')
-                $csv.Count | Should Be 2
-                $csv[0].AverageUsedBytes | Should Be '300'
-                $csv[0].ResourceId | Should Not Be $csv[1].ResourceId
+                $csv.Count | Should -Be 2
+                $csv[0].AverageUsedBytes | Should -Be '300'
+                $csv[0].ResourceId | Should -Not -Be $csv[1].ResourceId
             } finally { Set-StrictMode -Off }
         }
 
         It 'does not collect capacity by default and validates hourly boundaries before requests' {
             Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ErrorAction Stop | Out-Null
-            Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity|metricnames=IndexCapacity' }
-            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddMinutes(1) -EndTime $script:end -IncludeCapacity } | Should Throw 'whole hours'
+            Should -Invoke Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 0 -ParameterFilter { $Path -match 'metricnames=BlobCapacity|metricnames=IndexCapacity' }
+            { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start.AddMinutes(1) -EndTime $script:end -IncludeCapacity } | Should -Throw '*whole hours*'
         }
     It 'weights hourly samples rather than averaging unequal query chunks' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 2 -IncludeCapacity -ErrorAction Stop)
         $capacity = $rows | Where-Object RecordType -eq 'Capacity'
-        $capacity.AverageUsedBytes | Should Be 300
-        $capacity.ObservedByteHours | Should Be 900
-        $capacity.ExpectedHours | Should Be 3
-        $capacity.ObservedHours | Should Be 3
-        $capacity.MissingHours | Should Be 0
-        $capacity.Tier | Should Be 'Hot'
-        $capacity.BlobType | Should Be 'BlockBlob'
-        $capacity.CapacityStatus | Should Be 'CompleteSamples'
-        ($rows | Where-Object RecordType -eq 'IndexCapacity').AverageUsedBytes | Should Be 20
-        ($rows | Where-Object RecordType -eq 'CapacityAccountTotal').AverageUsedBytes | Should Be 300
-        $rows[0].SubscriptionName | Should Be 'Example subscription'
-        $rows[0].ConfigurationHistoryStatus | Should Be 'CurrentSnapshotOnly'
-        ([datetimeoffset]$rows[0].ConfigurationObservedAtUtc -gt $script:end) | Should Be $true
+        $capacity.AverageUsedBytes | Should -Be 300
+        $capacity.ObservedByteHours | Should -Be 900
+        $capacity.ExpectedHours | Should -Be 3
+        $capacity.ObservedHours | Should -Be 3
+        $capacity.MissingHours | Should -Be 0
+        $capacity.Tier | Should -Be 'Hot'
+        $capacity.BlobType | Should -Be 'BlockBlob'
+        $capacity.CapacityStatus | Should -Be 'CompleteSamples'
+        ($rows | Where-Object RecordType -eq 'IndexCapacity').AverageUsedBytes | Should -Be 20
+        ($rows | Where-Object RecordType -eq 'CapacityAccountTotal').AverageUsedBytes | Should -Be 300
+        $rows[0].SubscriptionName | Should -Be 'Example subscription'
+        $rows[0].ConfigurationHistoryStatus | Should -Be 'CurrentSnapshotOnly'
+        ([datetimeoffset]$rows[0].ConfigurationObservedAtUtc -gt $script:end) | Should -Be $true
     }
 
     It 'fails at the exact series cap rather than accepting potentially truncated capacity' {
         $script:seriesCap = $true
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'top=10000'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should -Throw '*top=10000*'
     }
 
     It 'halves capacity query windows after the series cap and records the effective window size' {
@@ -325,9 +335,9 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
             -ChunkHours 3 -SummaryPeriod Chunk -IncludeCapacity -ErrorAction Stop)
         $capacity = $rows | Where-Object RecordType -eq 'Capacity'
-        $capacity.QueryWindowHours | Should Be 1
-        $capacity.AverageUsedBytes | Should Be 300
-        Assert-MockCalled Invoke-AzRestMethod -Scope It -Times 5 -Exactly -ParameterFilter {
+        $capacity.QueryWindowHours | Should -Be 1
+        $capacity.AverageUsedBytes | Should -Be 300
+        Should -Invoke Invoke-AzRestMethod -ModuleName StorageMetrics -Scope It -Times 5 -Exactly -ParameterFilter {
             $Path -match 'metricnames=BlobCapacity' -and $Path -match '%24filter='
         }
     }
@@ -338,26 +348,26 @@ Describe 'Historical capacity through Get-AzStorageTransactionMetric' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end `
             -ChunkHours 2 -SummaryPeriod Chunk -IncludeCapacity -ErrorAction Stop)
         $capacity = $rows | Where-Object RecordType -eq 'Capacity'
-        $capacity.QueryWindowHours | Should Be 1
-        $capacity.AverageUsedBytes | Should Be 200
+        $capacity.QueryWindowHours | Should -Be 1
+        $capacity.AverageUsedBytes | Should -Be 200
     }
 
     It 'rejects out-of-window samples and missing dimensions' {
         $script:outOfWindow = $true
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'outside the requested hourly window'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should -Throw '*outside the requested hourly window*'
         $script:outOfWindow = $false
         $script:missingDimension = $true
-        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should Throw 'missing Tier or BlobType'
+        { Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -IncludeCapacity -ErrorAction Stop } | Should -Throw '*missing Tier or BlobType*'
     }
 
     It 'retains individual capacity query windows when Chunk output is requested' {
         $rows = @(Get-AzStorageTransactionMetric -ResourceId $script:id -StartTime $script:start -EndTime $script:end -ChunkHours 2 -SummaryPeriod Chunk -IncludeCapacity -ErrorAction Stop)
         $capacity = @($rows | Where-Object RecordType -eq 'Capacity')
-        $capacity.Count | Should Be 2
-        $capacity[0].AverageUsedBytes | Should Be 200
-        $capacity[0].ExpectedHours | Should Be 2
-        $capacity[1].AverageUsedBytes | Should Be 500
-        $capacity[1].ExpectedHours | Should Be 1
-        $capacity[0].EndTime | Should Be $capacity[1].StartTime
+        $capacity.Count | Should -Be 2
+        $capacity[0].AverageUsedBytes | Should -Be 200
+        $capacity[0].ExpectedHours | Should -Be 2
+        $capacity[1].AverageUsedBytes | Should -Be 500
+        $capacity[1].ExpectedHours | Should -Be 1
+        $capacity[0].EndTime | Should -Be $capacity[1].StartTime
     }
 }

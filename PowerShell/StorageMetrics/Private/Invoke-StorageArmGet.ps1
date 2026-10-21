@@ -1,5 +1,8 @@
-# Shared retry policy for ARM GET requests in the storage metrics collectors.
 function Invoke-StorageArmGet {
+    <#
+    .SYNOPSIS
+    Sends an ARM GET using a saved context and bounded transient-response retries.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -91,7 +94,7 @@ function Invoke-StorageArmGet {
                         [Globalization.DateTimeStyles]::AssumeUniversal, [ref]$retryTime)) {
                     throw 'ARM returned an invalid Retry-After header.'
                 }
-                $retrySeconds = [math]::Max(0, ($retryTime.ToUniversalTime() - [datetimeoffset]::UtcNow).TotalSeconds)
+                $retrySeconds = [math]::Max(0, ($retryTime.ToUniversalTime() - (Get-UtcNow)).TotalSeconds)
             }
         } else {
             $retrySeconds = [math]::Pow(2, $retry) + (Get-Random -Minimum 0 -Maximum 1000) / 1000.0
